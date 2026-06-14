@@ -1,0 +1,277 @@
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Avatar, Badge, Button, Card, Snackbar, Text, useTheme } from 'react-native-paper';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+interface BarberAppointment {
+  id: string;
+  clientName: string;
+  clientAvatar: string;
+  service: string;
+  time: string;
+  status: 'pending' | 'attended' | 'no_show';
+}
+
+export default function BarberHomeScreen() {
+  const theme = useTheme();
+  const router = useRouter();
+
+  // Mock list of today's appointments
+  const [appointments, setAppointments] = useState<BarberAppointment[]>([
+    { id: '1', clientName: 'Kevin Guerrero', clientAvatar: 'KG', service: 'Corte Signature + Lavado', time: '09:00 AM', status: 'pending' },
+    { id: '2', clientName: 'Luis Flores', clientAvatar: 'LF', service: 'Perfilado de Barba Premium', time: '10:30 AM', status: 'pending' },
+    { id: '3', clientName: 'Andres Silva', clientAvatar: 'AS', service: 'Combo Corte & Barba Imperial', time: '12:00 PM', status: 'pending' },
+    { id: '4', clientName: 'Diego Torres', clientAvatar: 'DT', service: 'Tratamiento Facial Exfoliante', time: '02:30 PM', status: 'pending' },
+    { id: '5', clientName: 'Sebastian Rivas', clientAvatar: 'SR', service: 'Corte de Cabello Clásico', time: '04:00 PM', status: 'pending' },
+  ]);
+
+  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMsg, setSnackbarMsg] = useState('');
+  const [snackbarColor, setSnackbarColor] = useState('#4CAF50'); // Green by default
+
+  const updateStatus = (id: string, newStatus: 'attended' | 'no_show') => {
+    setAppointments(prev =>
+      prev.map(a => a.id === id ? { ...a, status: newStatus } : a)
+    );
+    const appt = appointments.find(a => a.id === id);
+    const msg = newStatus === 'attended'
+      ? `¡Cita de ${appt?.clientName} marcada como Atendida!`
+      : `Cita de ${appt?.clientName} marcada como No Asistió.`;
+    setSnackbarMsg(msg);
+    setSnackbarColor(newStatus === 'attended' ? '#4CAF50' : '#D32F2F'); // Green for attended, Red for no-show
+    setSnackbarVisible(true);
+  };
+
+  const handleCardPress = (item: BarberAppointment) => {
+    router.push({
+      pathname: '/(barber)/detail' as any,
+      params: {
+        clientId: item.id,
+        clientName: item.clientName,
+        service: item.service,
+        time: item.time,
+      }
+    });
+  };
+
+  const pendingCount = appointments.filter(a => a.status === 'pending').length;
+
+  return (
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
+      {/* Top Header */}
+      <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
+        <View>
+          <Text variant="headlineSmall" style={[styles.headerTitle, { color: theme.colors.secondary }]}>
+            Mi Agenda
+          </Text>
+          <Text variant="bodySmall" style={styles.headerSubtitle}>
+            Agenda de hoy • 11 de Junio, 2026
+          </Text>
+        </View>
+        <Badge size={28} style={[styles.badge, { backgroundColor: theme.colors.primary, color: '#121212' }]}>
+          {pendingCount}
+        </Badge>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Helper Banner */}
+        <View style={[styles.helperBanner, { backgroundColor: theme.colors.surfaceVariant }]}>
+          <Text variant="bodySmall" style={{ textAlign: 'center', opacity: 0.7 }}>
+            Toca una cita para ver el historial y preferencias del cliente.
+          </Text>
+        </View>
+
+        {/* Chronological Appointments List */}
+        <View style={styles.listContainer}>
+          {appointments.map((item) => {
+            const isAttended = item.status === 'attended';
+            const isNoShow = item.status === 'no_show';
+            const isPending = item.status === 'pending';
+
+            return (
+              <Card
+                key={item.id}
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    opacity: isPending ? 1 : 0.6,
+                    borderLeftColor: isAttended ? '#4CAF50' : isNoShow ? theme.colors.error : theme.colors.primary,
+                    borderLeftWidth: 5,
+                  }
+                ]}
+                elevation={isPending ? 2 : 1}
+                onPress={() => handleCardPress(item)}
+              >
+                <Card.Content style={styles.cardContent}>
+                  {/* Card Header Row */}
+                  <View style={styles.cardHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <IconSymbol size={16} name="clock" color={theme.colors.primary} style={{ marginRight: 6 }} />
+                      <Text variant="titleMedium" style={[styles.time, { color: theme.colors.primary }]}>
+                        {item.time}
+                      </Text>
+                    </View>
+
+                    {!isPending && (
+                      <Badge style={{
+                        backgroundColor: isAttended ? '#4CAF50' : theme.colors.error,
+                        color: '#ffffff',
+                        fontWeight: 'bold'
+                      }}>
+                        {isAttended ? 'ATENDIDO' : 'NO ASISTIÓ'}
+                      </Badge>
+                    )}
+                  </View>
+
+                  {/* Client Info */}
+                  <View style={styles.clientInfo}>
+                    <Avatar.Text
+                      size={44}
+                      label={item.clientAvatar}
+                      style={{ backgroundColor: theme.colors.surfaceVariant }}
+                      labelStyle={{ color: theme.colors.primary, fontWeight: 'bold' }}
+                    />
+                    <View style={styles.clientDetails}>
+                      <Text variant="titleMedium" style={[styles.clientName, { color: theme.colors.secondary }]}>
+                        {item.clientName}
+                      </Text>
+                      <Text variant="bodySmall" style={styles.serviceName}>
+                        {item.service}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Action Buttons for Pending */}
+                  {isPending && (
+                    <View style={styles.actions}>
+                      <Button
+                        mode="outlined"
+                        onPress={() => updateStatus(item.id, 'no_show')}
+                        style={[styles.actionBtn, { borderColor: theme.colors.error }]}
+                        textColor={theme.colors.error}
+                        icon="close-circle-outline"
+                        compact
+                      >
+                        No Asistió
+                      </Button>
+                      <Button
+                        mode="contained"
+                        onPress={() => updateStatus(item.id, 'attended')}
+                        style={[styles.actionBtn, { backgroundColor: theme.colors.primary }]}
+                        labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+                        icon="check-circle-outline"
+                        compact
+                      >
+                        Atendido
+                      </Button>
+                    </View>
+                  )}
+                </Card.Content>
+              </Card>
+            );
+          })}
+        </View>
+      </ScrollView>
+
+      <Snackbar
+        visible={snackbarVisible}
+        onDismiss={() => setSnackbarVisible(false)}
+        duration={2500}
+        style={{ backgroundColor: snackbarColor }}
+      >
+        <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>
+          {snackbarMsg}
+        </Text>
+      </Snackbar>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(150, 150, 150, 0.1)',
+  },
+  headerTitle: {
+    fontWeight: 'bold',
+  },
+  headerSubtitle: {
+    opacity: 0.5,
+  },
+  badge: {
+    fontWeight: 'bold',
+  },
+  scrollContent: {
+    paddingBottom: 40,
+  },
+  helperBanner: {
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  listContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    gap: 16,
+  },
+  card: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.1)',
+  },
+  cardContent: {
+    padding: 12,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  time: {
+    fontWeight: 'bold',
+  },
+  clientInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  clientDetails: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  clientName: {
+    fontWeight: 'bold',
+  },
+  serviceName: {
+    opacity: 0.6,
+  },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(150, 150, 150, 0.1)',
+    paddingTop: 10,
+  },
+  actionBtn: {
+    borderRadius: 6,
+  },
+  logoutContainer: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(150, 150, 150, 0.1)',
+  },
+});

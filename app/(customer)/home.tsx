@@ -1,0 +1,700 @@
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useUserRole } from '@/context/user-role';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import { Dimensions, FlatList, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Avatar, Badge, Button, Card, Dialog, IconButton, Modal, Portal, Text, useTheme } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+const { width: screenWidth } = Dimensions.get('window');
+const SERVICE_CARD_WIDTH = screenWidth * 0.41;
+
+interface ServiceItem {
+  id: string;
+  name: string;
+  price: string;
+  duration: string;
+  category: string;
+}
+
+interface StyleItem {
+  id: string;
+  name: string;
+  type: string;
+  description: string;
+  bgIcon: string;
+}
+
+export default function HomeScreen() {
+  const theme = useTheme();
+  const router = useRouter();
+  const { role, userName, logout } = useUserRole();
+  const isGuest = role === 'guest';
+
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [catalogVisible, setCatalogVisible] = useState(false);
+
+  // Mock catalog services (aligned with booking flow step 1)
+  const services: ServiceItem[] = [
+    { id: '1', name: 'Corte de Cabello Signature', price: 'S/. 45', duration: '35 min', category: 'Corte' },
+    { id: '2', name: 'Corte de Cabello Clásico', price: 'S/. 35', duration: '25 min', category: 'Corte' },
+    { id: '3', name: 'Perfilado de Barba Imperial', price: 'S/. 30', duration: '20 min', category: 'Barba' },
+    { id: '4', name: 'Recorte de Barba Express', price: 'S/. 20', duration: '15 min', category: 'Barba' },
+    { id: '5', name: 'Mascarilla Carbón Activo', price: 'S/. 25', duration: '20 min', category: 'Facial' },
+    { id: '6', name: 'Exfoliación Facial & Hidratación', price: 'S/. 20', duration: '15 min', category: 'Facial' },
+    { id: '7', name: 'Combo VIP Imperial (Promo)', price: 'S/. 75', duration: '50 min', category: 'Combo' },
+  ];
+
+  // Mock gallery styles
+  const stylesGallery: StyleItem[] = [
+    { id: '1', name: 'Degradado Alto (High Fade)', type: 'Moderno', description: 'Laterales al ras con transición suave hacia arriba', bgIcon: 'hair-dryer' },
+    { id: '2', name: 'Pompadour Clásico', type: 'Vintage', description: 'Estilo clásico con volumen superior y peinado hacia atrás', bgIcon: 'face-man' },
+    { id: '3', name: 'Recorte de Barba & Toalla Caliente', type: 'Barba', description: 'Afeitado tradicional con navaja y masaje hidratante', bgIcon: 'mustache' },
+    { id: '4', name: 'Buzz Cut Moderno', type: 'Minimalista', description: 'Corte muy corto y parejo con contornos perfilados', bgIcon: 'content-cut' },
+  ];
+
+  const handleBookingStart = (preselectedPromoId?: string) => {
+    if (isGuest) {
+      setDialogVisible(true);
+    } else {
+      if (preselectedPromoId) {
+        router.push({
+          pathname: '/(reservation)/1-service' as any,
+          params: { preselected: preselectedPromoId }
+        });
+      } else {
+        router.push('/(reservation)/1-service');
+      }
+    }
+  };
+
+  const goToLogin = () => {
+    setDialogVisible(false);
+    logout(); // Redirects to login
+  };
+
+  return (
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
+      {/* Top Header */}
+      <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
+        <View style={styles.userInfo}>
+          <Avatar.Text
+            size={40}
+            label={isGuest ? 'IN' : userName.split(' ').map(n => n[0]).join('')}
+            style={{ backgroundColor: theme.colors.primary }}
+            labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+          />
+          <View style={styles.userTextContainer}>
+            <Text variant="bodySmall" style={styles.welcomeText}>Bienvenido,</Text>
+            <Text variant="titleMedium" style={[styles.userName, { color: theme.colors.secondary }]}>
+              {isGuest ? 'Invitado' : userName}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Banner Promo del Mes */}
+        <Card style={[styles.promoCard, { backgroundColor: theme.colors.surfaceVariant }]} elevation={2}>
+          <Card.Content style={styles.promoContent}>
+            <View style={styles.promoHeader}>
+              <Badge style={[styles.promoBadge, { backgroundColor: theme.colors.primary }]}>PROMO DEL MES</Badge>
+              <Text variant="titleSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>20% OFF</Text>
+            </View>
+            <Text variant="headlineSmall" style={[styles.promoTitle, { color: theme.colors.secondary }]}>
+              Combo VIP Imperial
+            </Text>
+            <Text variant="bodyMedium" style={styles.promoDesc}>
+              Corte Premium + Diseño de Barba + Exfoliación Facial Express + Bebida de cortesía.
+            </Text>
+            <View style={styles.promoFooter}>
+              <Text variant="titleLarge" style={[styles.promoPrice, { color: theme.colors.primary }]}>
+                S/. 75 <Text style={styles.oldPrice}>S/. 95</Text>
+              </Text>
+              <Button
+                mode="contained"
+                onPress={() => handleBookingStart('7')}
+                style={[styles.promoBtn, { backgroundColor: theme.colors.primary }]}
+                labelStyle={styles.promoBtnLabel}
+              >
+                Aprovechar
+              </Button>
+            </View>
+          </Card.Content>
+        </Card>
+
+        {/* Accesos Rápidos */}
+        <Text style={[styles.sectionTitle, { color: theme.colors.secondary }]} variant="titleLarge">
+          Acceso Rápido
+        </Text>
+        <View style={styles.quickGrid}>
+          <Button
+            mode="contained"
+            icon="calendar-plus"
+            onPress={() => handleBookingStart()}
+            style={[styles.quickBookingBtn, { backgroundColor: theme.colors.primary }]}
+            contentStyle={styles.quickBookingBtnContent}
+            labelStyle={styles.quickBookingBtnLabel}
+          >
+            Reservar Ahora
+          </Button>
+        </View>
+
+        {/* Catálogo de Servicios */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.sectionTitle, { color: theme.colors.secondary }]} variant="titleLarge">
+            Nuestros Servicios
+          </Text>
+          <TouchableOpacity onPress={() => setCatalogVisible(true)}>
+            <Text style={{ color: theme.colors.primary, fontWeight: '600' }} variant="labelLarge">
+              Ver Todos
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ position: 'relative' }}>
+          <FlatList
+            data={services}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.horizontalList}
+            renderItem={({ item }) => (
+              <Card style={[styles.serviceCard, { backgroundColor: theme.colors.surface }]} elevation={2}>
+                <Card.Content style={styles.serviceContent}>
+                  <Badge style={styles.categoryBadge}>{item.category}</Badge>
+                  <Text variant="titleMedium" numberOfLines={2} style={[styles.serviceName, { color: theme.colors.secondary }]}>
+                    {item.name}
+                  </Text>
+                  <View style={styles.serviceFooter}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <IconSymbol size={14} name="clock" color={theme.colors.outline} style={{ marginRight: 4 }} />
+                      <Text variant="bodyMedium" style={styles.serviceDuration}>{item.duration}</Text>
+                    </View>
+                    <Text variant="titleMedium" style={[styles.servicePrice, { color: theme.colors.primary }]}>
+                      {item.price}
+                    </Text>
+                  </View>
+                </Card.Content>
+              </Card>
+            )}
+          />
+          {/* Subtle floating right arrow indicator overlay */}
+          <View style={styles.carouselArrowIndicator} pointerEvents="none">
+            <IconButton
+              icon="chevron-right"
+              size={18}
+              iconColor={theme.colors.primary}
+              style={{ backgroundColor: theme.colors.surface, margin: 0, elevation: 3 }}
+            />
+          </View>
+        </View>
+
+        {/* Galería de Estilos */}
+        <Text style={[styles.sectionTitle, { color: theme.colors.secondary }]} variant="titleLarge">
+          Galería de Estilos
+        </Text>
+        <View style={styles.galleryContainer}>
+          {stylesGallery.map((item) => (
+            <Card key={item.id} style={[styles.galleryCard, { backgroundColor: theme.colors.surface }]} elevation={2}>
+              <Card.Content style={styles.galleryContentRedesigned}>
+                {/* Text details on top */}
+                <View style={styles.galleryTextTop}>
+                  <Text variant="labelSmall" style={{ color: theme.colors.primary, fontWeight: 'bold', letterSpacing: 1 }}>
+                    {item.type.toUpperCase()}
+                  </Text>
+                  <Text variant="titleLarge" style={{ fontWeight: 'bold', color: theme.colors.secondary, marginTop: 4 }}>
+                    {item.name}
+                  </Text>
+                  <Text variant="bodyMedium" style={[styles.galleryDesc, { marginTop: 4, marginBottom: 12 }]}>
+                    {item.description}
+                  </Text>
+                </View>
+
+                {/* Styled Large Image Container on bottom */}
+                <View style={[styles.galleryImageBox, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline }]}>
+                  <Avatar.Icon
+                    icon={item.bgIcon}
+                    size={64}
+                    style={{ backgroundColor: 'transparent' }}
+                    color={theme.colors.primary}
+                  />
+                  <Text variant="labelSmall" style={{ color: theme.colors.outline, marginTop: 8, fontStyle: 'italic' }}>
+                    Foto de Referencia
+                  </Text>
+                </View>
+              </Card.Content>
+            </Card>
+          ))}
+        </View>
+      </ScrollView>
+
+      {/* Guest Block Dialog */}
+      <Portal>
+        <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)} style={{ backgroundColor: theme.colors.surface }}>
+          <Dialog.Title style={{ color: theme.colors.primary }}>Cuenta Requerida</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium">
+              Para poder agendar una cita o acceder a los servicios personalizados, necesitas iniciar sesión o crear una cuenta nueva.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDialogVisible(false)} textColor={theme.colors.outline}>
+              Cancelar
+            </Button>
+            <Button onPress={goToLogin} textColor={theme.colors.primary} labelStyle={{ fontWeight: 'bold' }}>
+              Iniciar Sesión
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
+      {/* Complete Catalog Modal Redesigned: Formal, Elegant Booklet Style */}
+      <Portal>
+        <Modal
+          visible={catalogVisible}
+          onDismiss={() => setCatalogVisible(false)}
+          contentContainerStyle={[styles.modalContentContainer, { backgroundColor: theme.colors.surface }]}
+        >
+          <View style={[styles.modalInnerBorder, { borderColor: 'rgba(212, 175, 55, 0.35)' }]}>
+            {/* Header */}
+            <View style={styles.modalHeader}>
+              <Text variant="labelMedium" style={[styles.modalHeaderSubtitle, { color: theme.colors.primary }]}>
+                EXPERIENCIA EXCLUSIVA
+              </Text>
+              <Text variant="headlineSmall" style={[styles.modalHeaderTitle, { color: theme.colors.secondary }]}>
+                CARTA DE SERVICIOS
+              </Text>
+              <View style={styles.ornamentRow}>
+                <View style={[styles.ornamentLine, { backgroundColor: theme.colors.primary }]} />
+                <Avatar.Icon
+                  icon="face-man"
+                  size={24}
+                  color={theme.colors.primary}
+                  style={{ backgroundColor: 'transparent', marginHorizontal: 8 }}
+                />
+                <View style={[styles.ornamentLine, { backgroundColor: theme.colors.primary }]} />
+              </View>
+              <Text variant="bodySmall" style={[styles.modalHeaderBranch, { color: theme.colors.secondary }]}>
+                SEDE SAN ISIDRO • BARBERAPP
+              </Text>
+            </View>
+
+            {/* Scrollable Menu Items */}
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
+              {['Corte', 'Barba', 'Facial', 'Combo'].map((cat) => {
+                const filtered = services.filter(s => s.category === cat);
+                if (filtered.length === 0) return null;
+
+                return (
+                  <View key={cat} style={styles.modalCategorySection}>
+                    <Text variant="titleMedium" style={[styles.modalCategoryTitle, { color: theme.colors.primary }]}>
+                      {cat === 'Corte' ? 'CORTES DE CABELLO' : cat === 'Barba' ? 'DISEÑO DE BARBA' : cat === 'Facial' ? 'TERAPIAS FACIALES' : 'COMBOS Y EXPERIENCIAS'}
+                    </Text>
+
+                    {filtered.map(s => (
+                      <TouchableOpacity
+                        key={s.id}
+                        style={styles.modalServiceRow}
+                        onPress={() => {
+                          setCatalogVisible(false);
+                          handleBookingStart(s.id);
+                        }}
+                      >
+                        <View style={styles.serviceRowHeader}>
+                          <Text style={[styles.modalServiceName, { color: theme.colors.secondary }]}>
+                            {s.name}
+                          </Text>
+                          <View style={[styles.dottedLine, { borderBottomColor: 'rgba(212, 175, 55, 0.25)' }]} />
+                          <Text style={[styles.modalServicePrice, { color: theme.colors.primary }]}>
+                            {s.price}
+                          </Text>
+                        </View>
+
+                        <Text variant="bodySmall" style={[styles.modalServiceDescription, { color: theme.colors.secondary }]}>
+                          {s.id === '1' ? 'Lavado purificante, corte de precisión adaptado a tu rostro, y estilizado con pomada importada de alta gama.' :
+                            s.id === '2' ? 'Corte clásico tradicional a tijera y máquina con acabado limpio y loción refrescante.' :
+                              s.id === '3' ? 'Diseño de barba con navaja libre, toallas calientes aromáticas y aceites de hidratación premium.' :
+                                s.id === '4' ? 'Recorte rápido a máquina y alineación de contornos para mantener tu barba impecable.' :
+                                  s.id === '5' ? 'Tratamiento detox con mascarilla de carbón activo para remover impurezas y puntos negros.' :
+                                    s.id === '6' ? 'Exfoliación facial profunda para renovación celular con mascarilla hidratante refrescante.' :
+                                      'La experiencia de lujo total. Corte Signature, perfilado de barba premium, exfoliación express y bebida de cortesía.'}
+                        </Text>
+
+                        <View style={styles.serviceRowFooter}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <IconSymbol size={13} name="clock" color={theme.colors.outline} style={{ marginRight: 4 }} />
+                            <Text variant="labelSmall" style={[styles.modalServiceDuration, { color: theme.colors.secondary }]}>
+                              {s.duration}
+                            </Text>
+                          </View>
+                          <View style={styles.dotSeparator} />
+                          <Text variant="labelSmall" style={[styles.modalReserveLink, { color: theme.colors.primary }]}>
+                            Reservar servicio ➜
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            {/* Footer / Actions */}
+            <View style={styles.modalFooter}>
+              <Button
+                mode="outlined"
+                onPress={() => setCatalogVisible(false)}
+                style={[styles.closeMenuBtn, { borderColor: theme.colors.primary }]}
+                textColor={theme.colors.primary}
+                labelStyle={styles.closeMenuBtnLabel}
+              >
+                CERRAR CARTA
+              </Button>
+            </View>
+          </View>
+        </Modal>
+      </Portal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(150, 150, 150, 0.1)',
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  userTextContainer: {
+    marginLeft: 12,
+  },
+  welcomeText: {
+    opacity: 0.6,
+  },
+  userName: {
+    fontWeight: 'bold',
+  },
+  scrollContent: {
+    paddingBottom: 40,
+  },
+  promoCard: {
+    margin: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.2)',
+  },
+  promoContent: {
+    padding: 16,
+  },
+  promoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  promoBadge: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  promoTitle: {
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  promoDesc: {
+    opacity: 0.7,
+    marginBottom: 16,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  promoFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  promoPrice: {
+    fontWeight: 'bold',
+  },
+  oldPrice: {
+    fontSize: 13,
+    textDecorationLine: 'line-through',
+    opacity: 0.5,
+    fontWeight: 'normal',
+  },
+  promoBtn: {
+    borderRadius: 8,
+  },
+  promoBtnLabel: {
+    fontWeight: 'bold',
+    color: '#121212',
+  },
+  sectionTitle: {
+    fontWeight: 'bold',
+    paddingHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingRight: 20,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  quickGrid: {
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  quickBookingBtn: {
+    borderRadius: 12,
+    elevation: 3,
+  },
+  quickBookingBtnContent: {
+    height: 56,
+    flexDirection: 'row',
+  },
+  quickBookingBtnLabel: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    color: '#121212',
+  },
+  horizontalList: {
+    paddingLeft: 20,
+    paddingRight: 10,
+    paddingBottom: 16,
+  },
+  serviceCard: {
+    width: SERVICE_CARD_WIDTH,
+    marginRight: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.1)',
+  },
+  carouselArrowIndicator: {
+    position: 'absolute',
+    right: 4,
+    top: '32%',
+    zIndex: 10,
+    opacity: 0.85,
+  },
+  serviceContent: {
+    padding: 12,
+    height: 140,
+    justifyContent: 'space-between',
+  },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    color: '#C5A880',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  serviceName: {
+    fontWeight: '700',
+    fontSize: 14,
+    marginVertical: 4,
+    lineHeight: 18,
+  },
+  serviceFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  serviceDuration: {
+    fontSize: 11,
+    opacity: 0.5,
+  },
+  servicePrice: {
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  galleryContainer: {
+    paddingHorizontal: 20,
+    gap: 16,
+  },
+  galleryCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.1)',
+    overflow: 'hidden',
+  },
+  galleryContentRedesigned: {
+    padding: 16,
+  },
+  galleryTextTop: {
+    width: '100%',
+  },
+  galleryImageBox: {
+    width: '100%',
+    height: 160,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    marginTop: 4,
+  },
+  galleryDesc: {
+    opacity: 0.65,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  detailedServiceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(150, 150, 150, 0.12)',
+  },
+  modalContentContainer: {
+    margin: 16,
+    height: '80%',
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#D4AF37',
+    padding: 5,
+    elevation: 10,
+  },
+  modalInnerBorder: {
+    borderWidth: 1,
+    borderStyle: 'solid',
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 12,
+    flex: 1,
+    height: '100%',
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  modalHeaderSubtitle: {
+    fontWeight: '700',
+    letterSpacing: 2,
+    fontSize: 10,
+    opacity: 0.8,
+  },
+  modalHeaderTitle: {
+    fontWeight: 'bold',
+    fontSize: 22,
+    letterSpacing: 1.5,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  ornamentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  ornamentLine: {
+    height: 1,
+    width: 40,
+    opacity: 0.4,
+  },
+  modalHeaderBranch: {
+    fontSize: 9,
+    letterSpacing: 1.5,
+    opacity: 0.5,
+    marginTop: 2,
+  },
+  modalScrollContent: {
+    paddingBottom: 16,
+  },
+  modalCategorySection: {
+    marginBottom: 20,
+  },
+  modalCategoryTitle: {
+    fontWeight: 'bold',
+    letterSpacing: 2,
+    fontSize: 13,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(212, 175, 55, 0.25)',
+    paddingBottom: 4,
+  },
+  modalServiceRow: {
+    marginBottom: 16,
+    paddingVertical: 4,
+  },
+  serviceRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  modalServiceName: {
+    fontWeight: '700',
+    fontSize: 15,
+    flexShrink: 1,
+  },
+  dottedLine: {
+    flex: 1,
+    borderStyle: 'dotted',
+    borderBottomWidth: 1.5,
+    marginHorizontal: 8,
+    height: 1,
+  },
+  modalServicePrice: {
+    fontWeight: 'bold',
+    fontSize: 15,
+    minWidth: 55,
+    textAlign: 'right',
+  },
+  modalServiceDescription: {
+    opacity: 0.6,
+    marginTop: 4,
+    lineHeight: 16,
+    fontSize: 12,
+  },
+  serviceRowFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  modalServiceDuration: {
+    fontSize: 11,
+    opacity: 0.5,
+  },
+  dotSeparator: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(212, 175, 55, 0.4)',
+    marginHorizontal: 8,
+  },
+  modalReserveLink: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  modalFooter: {
+    paddingTop: 12,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(150, 150, 150, 0.15)',
+    alignItems: 'center',
+  },
+  closeMenuBtn: {
+    borderRadius: 4,
+    borderWidth: 1,
+    width: '80%',
+  },
+  closeMenuBtnLabel: {
+    fontWeight: 'bold',
+    fontSize: 13,
+    letterSpacing: 1.5,
+  },
+});
