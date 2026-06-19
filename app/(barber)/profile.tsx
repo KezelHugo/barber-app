@@ -1,8 +1,8 @@
-import { useUserRole } from '@/context/user-role';
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Button, Card, Divider, Icon, ProgressBar, Text, useTheme } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useUserRole } from '@/context/user-role';
 
 interface ClientReview {
   id: string;
@@ -15,7 +15,7 @@ interface ClientReview {
 
 export default function BarberProfileScreen() {
   const theme = useTheme();
-  const { logout } = useUserRole();
+  const { userName, userEmail, logout } = useUserRole();
 
   // Mock list of reviews
   const reviews: ClientReview[] = [
@@ -53,18 +53,18 @@ export default function BarberProfileScreen() {
           <Card.Content style={styles.headerContent}>
             <Avatar.Text
               size={80}
-              label="CM"
+              label={userName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
               style={{ backgroundColor: theme.colors.primary }}
               labelStyle={{ color: '#121212', fontWeight: 'bold' }}
             />
             <Text variant="headlineSmall" style={[styles.name, { color: theme.colors.secondary }]}>
-              Carlos Mendoza
+              {userName}
             </Text>
             <Text variant="bodyMedium" style={styles.roleTitle}>
               Barbero Master • Sede San Isidro
             </Text>
             <Text style={{ opacity: 0.5, marginTop: 4 }}>
-              carlos.mendoza@barberapp.com
+              {userEmail}
             </Text>
           </Card.Content>
         </Card>
@@ -148,13 +148,12 @@ export default function BarberProfileScreen() {
         </Card>
 
         {/* Actions */}
-        <View style={styles.actionsContainer}>
+        <View style={{ marginBottom: 20 }}>
           <Button
-            mode="contained"
-            onPress={() => logout()}
-            style={[styles.logoutBtn, { backgroundColor: theme.colors.error }]}
-            icon="logout"
-            labelStyle={{ fontWeight: 'bold' }}
+            mode="outlined"
+            onPress={logout}
+            style={{ borderColor: theme.colors.outline }}
+            textColor={theme.colors.secondary}
           >
             Cerrar Sesión
           </Button>

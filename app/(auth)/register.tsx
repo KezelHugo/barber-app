@@ -8,7 +8,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function RegisterScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const { loginAs } = useUserRole();
+  const { signUp } = useUserRole();
+  const [loading, setLoading] = useState(false);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -19,18 +20,21 @@ export default function RegisterScreen() {
   const [error, setError] = useState('');
   const [visibleSnackbar, setVisibleSnackbar] = useState(false);
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (!name || !email || !phone || !password) {
       setError('Por favor, completa todos los campos.');
       return;
     }
+    setLoading(true);
     setError('');
-    setVisibleSnackbar(true);
-    
-    // Simulate successful registration and automatically log in after 1.5 seconds
-    setTimeout(() => {
-      loginAs('customer', email);
-    }, 1500);
+    try {
+      await signUp(name, email, phone, password);
+      setVisibleSnackbar(true);
+    } catch (err: any) {
+      setError(err.message || 'Error al registrar usuario.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -112,6 +116,8 @@ export default function RegisterScreen() {
               <Button
                 mode="contained"
                 onPress={handleRegister}
+                loading={loading}
+                disabled={loading}
                 style={[styles.registerBtn, { backgroundColor: theme.colors.primary }]}
                 labelStyle={styles.btnLabel}
               >

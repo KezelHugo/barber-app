@@ -2,23 +2,34 @@ import React, { useState } from 'react';
 import { StyleSheet, View, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { TextInput, Button, Text, useTheme, Card, HelperText, Dialog, Portal } from 'react-native-paper';
 import { Link, useRouter } from 'expo-router';
+import { useUserRole } from '@/context/user-role';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ForgotPasswordScreen() {
   const theme = useTheme();
   const router = useRouter();
 
+  const { resetPassword } = useUserRole();
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [visibleDialog, setVisibleDialog] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleRecover = () => {
+  const handleRecover = async () => {
     if (!email) {
       setError('Por favor, ingresa tu correo electrónico.');
       return;
     }
+    setLoading(true);
     setError('');
-    setVisibleDialog(true);
+    try {
+      await resetPassword(email);
+      setVisibleDialog(true);
+    } catch (err: any) {
+      setError(err.message || 'Error al enviar enlace de recuperación.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDialogDismiss = () => {
@@ -70,6 +81,8 @@ export default function ForgotPasswordScreen() {
               <Button
                 mode="contained"
                 onPress={handleRecover}
+                loading={loading}
+                disabled={loading}
                 style={[styles.recoverBtn, { backgroundColor: theme.colors.primary }]}
                 labelStyle={styles.btnLabel}
               >

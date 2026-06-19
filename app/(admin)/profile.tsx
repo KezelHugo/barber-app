@@ -1,16 +1,14 @@
-import { useRouter } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Button, Card, Divider, List, Text, useTheme } from 'react-native-paper';
+import { useRouter } from 'expo-router';
+import { useUserRole } from '@/context/user-role';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AdminProfileScreen() {
   const theme = useTheme();
   const router = useRouter();
-
-  const handleLogout = () => {
-    router.replace('/(auth)/login');
-  };
+  const { userName, userEmail, logout } = useUserRole();
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
@@ -20,15 +18,15 @@ export default function AdminProfileScreen() {
           <Card.Content style={styles.headerContent}>
             <Avatar.Text
               size={80}
-              label="AD"
+              label={userName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
               style={{ backgroundColor: theme.colors.primary }}
               labelStyle={{ color: '#121212', fontWeight: 'bold' }}
             />
             <Text variant="headlineSmall" style={[styles.name, { color: theme.colors.secondary }]}>
-              Administrador General
+              {userName}
             </Text>
             <Text variant="bodyMedium" style={styles.roleTitle}>
-              Soporte BarberApp S.A.C.
+              {userEmail || 'Soporte BarberApp S.A.C.'}
             </Text>
             <View style={[styles.badge, { backgroundColor: 'rgba(212, 175, 55, 0.15)', marginTop: 8 }]}>
               <Text style={{ color: theme.colors.primary, fontWeight: 'bold', fontSize: 12 }}>
@@ -92,7 +90,7 @@ export default function AdminProfileScreen() {
         <View style={styles.actionsContainer}>
           <Button
             mode="contained"
-            onPress={handleLogout}
+            onPress={logout}
             style={[styles.logoutBtn, { backgroundColor: theme.colors.error }]}
             icon="logout"
             labelStyle={{ fontWeight: 'bold' }}
