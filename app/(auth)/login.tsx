@@ -8,26 +8,39 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function LoginScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const { loginAs, loginAsGuest } = useUserRole();
+  const { signIn, loginAsGuest } = useUserRole();
+  const [loading, setLoading] = useState(false);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!email || !password) {
       setError('Por favor, ingresa tu correo y contraseña.');
       return;
     }
+    setLoading(true);
     setError('');
-    // Default to customer on typing login, or parse prefix to route
-    if (email.includes('admin')) {
-      loginAs('admin', email);
-    } else if (email.includes('barber')) {
-      loginAs('barber', email);
-    } else {
-      loginAs('customer', email);
+    try {
+      await signIn(email, password);
+    } catch (err: any) {
+      setError(err.message || 'Error al iniciar sesión.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDevBypass = async (devEmail: string) => {
+    setLoading(true);
+    setError('');
+    try {
+      await signIn(devEmail, 'password123');
+    } catch (err: any) {
+      setError(`Prueba fallida. Asegúrate de registrar en Firebase: ${devEmail} / password123`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -96,6 +109,8 @@ export default function LoginScreen() {
               <Button
                 mode="contained"
                 onPress={handleLogin}
+                loading={loading}
+                disabled={loading}
                 style={[styles.loginBtn, { backgroundColor: theme.colors.primary }]}
                 labelStyle={styles.btnLabel}
               >
@@ -132,38 +147,41 @@ export default function LoginScreen() {
           </View>
 
           {/* Developer Bypass Panel */}
-          <View style={styles.devPanel}>
-            <Divider style={styles.divider} />
-            <Text style={styles.devTitle} variant="labelMedium">
-              ACCESO DE DESARROLLO (MODO DE PRUEBA)
-            </Text>
-            <View style={styles.devButtons}>
-              <Button
-                mode="contained-tonal"
-                onPress={() => loginAs('customer', 'cliente@barberapp.com')}
-                style={styles.devBtn}
-                compact
-              >
-                Cliente
-              </Button>
-              <Button
-                mode="contained-tonal"
-                onPress={() => loginAs('barber', 'barbero@barberapp.com')}
-                style={styles.devBtn}
-                compact
-              >
-                Barbero
-              </Button>
-              <Button
-                mode="contained-tonal"
-                onPress={() => loginAs('admin', 'admin@barberapp.com')}
-                style={styles.devBtn}
-                compact
-              >
-                Admin
-              </Button>
+            <View style={styles.devPanel}>
+              <Divider style={styles.divider} />
+              <Text style={styles.devTitle} variant="labelMedium">
+                ACCESO DE DESARROLLO (MODO DE PRUEBA)
+              </Text>
+              <View style={styles.devButtons}>
+                <Button
+                  mode="contained-tonal"
+                  onPress={() => handleDevBypass('cliente@barberapp.com')}
+                  disabled={loading}
+                  style={styles.devBtn}
+                  compact
+                >
+                  Cliente
+                </Button>
+                <Button
+                  mode="contained-tonal"
+                  onPress={() => handleDevBypass('barbero@barberapp.com')}
+                  disabled={loading}
+                  style={styles.devBtn}
+                  compact
+                >
+                  Barbero
+                </Button>
+                <Button
+                  mode="contained-tonal"
+                  onPress={() => handleDevBypass('admin@barberapp.com')}
+                  disabled={loading}
+                  style={styles.devBtn}
+                  compact
+                >
+                  Admin
+                </Button>
+              </View>
             </View>
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
