@@ -1,10 +1,12 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useUserRole } from '@/context/user-role';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Dimensions, FlatList, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Avatar, Badge, Button, Card, Dialog, IconButton, Modal, Portal, Text, useTheme } from 'react-native-paper';
+import { Avatar, Badge, Button, Card, Dialog, IconButton, Modal, Portal, Text, useTheme, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { db } from '@/config/firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 
 const { width: screenWidth } = Dimensions.get('window');
 const SERVICE_CARD_WIDTH = screenWidth * 0.41;
@@ -12,18 +14,20 @@ const SERVICE_CARD_WIDTH = screenWidth * 0.41;
 interface ServiceItem {
   id: string;
   name: string;
-  price: string;
-  duration: string;
-  category: string;
+  price: number;
+  promoPrice?: number;
+  duration: number; // en minutos
+  category: 'promocion' | 'cortes' | 'barba' | 'faciales';
+  description: string;
+  imageUrl?: string;
 }
 
-interface StyleItem {
-  id: string;
-  name: string;
-  type: string;
-  description: string;
-  bgIcon: string;
-}
+const CATEGORY_LABELS: Record<string, string> = {
+  promocion: 'Promoción',
+  cortes: 'Cortes',
+  barba: 'Barba',
+  faciales: 'Faciales'
+};
 
 export default function HomeScreen() {
   const theme = useTheme();
@@ -34,24 +38,60 @@ export default function HomeScreen() {
   const [dialogVisible, setDialogVisible] = useState(false);
   const [catalogVisible, setCatalogVisible] = useState(false);
 
-  // Mock catalog services (aligned with booking flow step 1)
-  const services: ServiceItem[] = [
-    { id: '1', name: 'Corte de Cabello Signature', price: 'S/. 45', duration: '35 min', category: 'Corte' },
-    { id: '2', name: 'Corte de Cabello Clásico', price: 'S/. 35', duration: '25 min', category: 'Corte' },
-    { id: '3', name: 'Perfilado de Barba Imperial', price: 'S/. 30', duration: '20 min', category: 'Barba' },
-    { id: '4', name: 'Recorte de Barba Express', price: 'S/. 20', duration: '15 min', category: 'Barba' },
-    { id: '5', name: 'Mascarilla Carbón Activo', price: 'S/. 25', duration: '20 min', category: 'Facial' },
-    { id: '6', name: 'Exfoliación Facial & Hidratación', price: 'S/. 20', duration: '15 min', category: 'Facial' },
-    { id: '7', name: 'Combo VIP Imperial (Promo)', price: 'S/. 75', duration: '50 min', category: 'Combo' },
-  ];
+  // Real database services state
+  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Mock gallery styles
-  const stylesGallery: StyleItem[] = [
-    { id: '1', name: 'Degradado Alto (High Fade)', type: 'Moderno', description: 'Laterales al ras con transición suave hacia arriba', bgIcon: 'hair-dryer' },
-    { id: '2', name: 'Pompadour Clásico', type: 'Vintage', description: 'Estilo clásico con volumen superior y peinado hacia atrás', bgIcon: 'face-man' },
-    { id: '3', name: 'Recorte de Barba & Toalla Caliente', type: 'Barba', description: 'Afeitado tradicional con navaja y masaje hidratante', bgIcon: 'mustache' },
-    { id: '4', name: 'Buzz Cut Moderno', type: 'Minimalista', description: 'Corte muy corto y parejo con contornos perfilados', bgIcon: 'content-cut' },
-  ];
+  // Carousel ref and scroll state
+  const flatListRef = useRef<FlatList>(null);
+  const [scrollOffset, setScrollOffset] = useState(0);
+
+  const handleScrollRight = () => {
+    if (flatListRef.current) {
+      const step = (SERVICE_CARD_WIDTH + 12) * 2;
+      const totalWidth = services.length * (SERVICE_CARD_WIDTH + 12);
+      // Si ya llegamos al final del scrollable, regresamos al inicio
+      if (scrollOffset + screenWidth >= totalWidth - 30) {
+        flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      } else {
+        flatListRef.current.scrollToOffset({
+          offset: scrollOffset + step,
+          animated: true,
+        });
+      }
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'services'), (snapshot) => {
+      const servicesList: ServiceItem[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        servicesList.push({
+          id: doc.id,
+          name: data.name || '',
+          price: Number(data.price) || 0,
+          promoPrice: data.promoPrice !== undefined ? Number(data.promoPrice) : undefined,
+          duration: Number(data.duration) || 0,
+          category: data.category || 'cortes',
+          description: data.description || '',
+          imageUrl: data.imageUrl || '',
+        });
+      });
+      setServices(servicesList);
+      setLoading(false);
+    }, (err) => {
+      console.error("Error al cargar servicios en HomeScreen:", err);
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // Seleccionar la promoción del mes (más barata en base a promoPrice)
+  const promoService = services
+    .filter(s => s.category === 'promocion' && s.promoPrice !== undefined)
+    .sort((a, b) => (a.promoPrice || 0) - (b.promoPrice || 0))[0];
 
   const handleBookingStart = (preselectedPromoId?: string) => {
     if (isGuest) {
@@ -95,33 +135,39 @@ export default function HomeScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Banner Promo del Mes */}
-        <Card style={[styles.promoCard, { backgroundColor: theme.colors.surfaceVariant }]} elevation={2}>
-          <Card.Content style={styles.promoContent}>
-            <View style={styles.promoHeader}>
-              <Badge style={[styles.promoBadge, { backgroundColor: theme.colors.primary }]}>PROMO DEL MES</Badge>
-              <Text variant="titleSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>20% OFF</Text>
-            </View>
-            <Text variant="headlineSmall" style={[styles.promoTitle, { color: theme.colors.secondary }]}>
-              Combo VIP Imperial
-            </Text>
-            <Text variant="bodyMedium" style={styles.promoDesc}>
-              Corte Premium + Diseño de Barba + Exfoliación Facial Express + Bebida de cortesía.
-            </Text>
-            <View style={styles.promoFooter}>
-              <Text variant="titleLarge" style={[styles.promoPrice, { color: theme.colors.primary }]}>
-                S/. 75 <Text style={styles.oldPrice}>S/. 95</Text>
+        {promoService ? (
+          <Card style={[styles.promoCard, { backgroundColor: theme.colors.surfaceVariant }]} elevation={2}>
+            <Card.Content style={styles.promoContent}>
+              <View style={styles.promoHeader}>
+                <Badge style={[styles.promoBadge, { backgroundColor: theme.colors.primary }]}>PROMO DEL MES</Badge>
+                {promoService.price > 0 && promoService.promoPrice && (
+                  <Text variant="titleSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                    {Math.round((1 - (promoService.promoPrice / promoService.price)) * 100)}% OFF
+                  </Text>
+                )}
+              </View>
+              <Text variant="headlineSmall" style={[styles.promoTitle, { color: theme.colors.secondary }]}>
+                {promoService.name}
               </Text>
-              <Button
-                mode="contained"
-                onPress={() => handleBookingStart('7')}
-                style={[styles.promoBtn, { backgroundColor: theme.colors.primary }]}
-                labelStyle={styles.promoBtnLabel}
-              >
-                Aprovechar
-              </Button>
-            </View>
-          </Card.Content>
-        </Card>
+              <Text variant="bodyMedium" style={styles.promoDesc}>
+                {promoService.description || 'Disfruta de esta oferta exclusiva por tiempo limitado.'}
+              </Text>
+              <View style={styles.promoFooter}>
+                <Text variant="titleLarge" style={[styles.promoPrice, { color: theme.colors.primary }]}>
+                  S/. {promoService.promoPrice} <Text style={styles.oldPrice}>S/. {promoService.price}</Text>
+                </Text>
+                <Button
+                  mode="contained"
+                  onPress={() => handleBookingStart(promoService.id)}
+                  style={[styles.promoBtn, { backgroundColor: theme.colors.primary }]}
+                  labelStyle={styles.promoBtnLabel}
+                >
+                  Aprovechar
+                </Button>
+              </View>
+            </Card.Content>
+          </Card>
+        ) : null}
 
         {/* Accesos Rápidos */}
         <Text style={[styles.sectionTitle, { color: theme.colors.secondary }]} variant="titleLarge">
@@ -153,80 +199,64 @@ export default function HomeScreen() {
         </View>
 
         <View style={{ position: 'relative' }}>
-          <FlatList
-            data={services}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.horizontalList}
-            renderItem={({ item }) => (
-              <Card style={[styles.serviceCard, { backgroundColor: theme.colors.surface }]} elevation={2}>
-                <Card.Content style={styles.serviceContent}>
-                  <Badge style={styles.categoryBadge}>{item.category}</Badge>
-                  <Text variant="titleMedium" numberOfLines={2} style={[styles.serviceName, { color: theme.colors.secondary }]}>
-                    {item.name}
-                  </Text>
-                  <View style={styles.serviceFooter}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <IconSymbol size={14} name="clock" color={theme.colors.outline} style={{ marginRight: 4 }} />
-                      <Text variant="bodyMedium" style={styles.serviceDuration}>{item.duration}</Text>
-                    </View>
-                    <Text variant="titleMedium" style={[styles.servicePrice, { color: theme.colors.primary }]}>
-                      {item.price}
+          {loading ? (
+            <ActivityIndicator style={{ marginVertical: 30 }} color={theme.colors.primary} />
+          ) : (
+            <FlatList
+              ref={flatListRef}
+              data={services}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.horizontalList}
+              onScroll={(event) => {
+                setScrollOffset(event.nativeEvent.contentOffset.x);
+              }}
+              scrollEventThrottle={16}
+              renderItem={({ item }) => (
+                <Card 
+                  style={[styles.serviceCard, { backgroundColor: theme.colors.surface }]} 
+                  elevation={2}
+                  onPress={() => handleBookingStart(item.id)}
+                >
+                  <Card.Content style={styles.serviceContent}>
+                    <Badge style={styles.categoryBadge}>
+                      {CATEGORY_LABELS[item.category] || item.category}
+                    </Badge>
+                    <Text variant="titleMedium" numberOfLines={2} style={[styles.serviceName, { color: theme.colors.secondary }]}>
+                      {item.name}
                     </Text>
-                  </View>
-                </Card.Content>
-              </Card>
-            )}
-          />
+                    <View style={styles.serviceFooter}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <IconSymbol size={14} name="clock" color={theme.colors.outline} style={{ marginRight: 4 }} />
+                        <Text variant="bodyMedium" style={styles.serviceDuration}>{item.duration} min</Text>
+                      </View>
+                      <Text variant="titleMedium" style={[styles.servicePrice, { color: theme.colors.primary }]}>
+                        {item.category === 'promocion' && item.promoPrice !== undefined ? (
+                          `S/. ${item.promoPrice}`
+                        ) : (
+                          `S/. ${item.price}`
+                        )}
+                      </Text>
+                    </View>
+                  </Card.Content>
+                </Card>
+              )}
+            />
+          )}
           {/* Subtle floating right arrow indicator overlay */}
-          <View style={styles.carouselArrowIndicator} pointerEvents="none">
+          <View style={styles.carouselArrowIndicator}>
             <IconButton
               icon="chevron-right"
               size={18}
               iconColor={theme.colors.primary}
               style={{ backgroundColor: theme.colors.surface, margin: 0, elevation: 3 }}
+              onPress={handleScrollRight}
             />
           </View>
         </View>
 
-        {/* Galería de Estilos */}
-        <Text style={[styles.sectionTitle, { color: theme.colors.secondary }]} variant="titleLarge">
-          Galería de Estilos
-        </Text>
-        <View style={styles.galleryContainer}>
-          {stylesGallery.map((item) => (
-            <Card key={item.id} style={[styles.galleryCard, { backgroundColor: theme.colors.surface }]} elevation={2}>
-              <Card.Content style={styles.galleryContentRedesigned}>
-                {/* Text details on top */}
-                <View style={styles.galleryTextTop}>
-                  <Text variant="labelSmall" style={{ color: theme.colors.primary, fontWeight: 'bold', letterSpacing: 1 }}>
-                    {item.type.toUpperCase()}
-                  </Text>
-                  <Text variant="titleLarge" style={{ fontWeight: 'bold', color: theme.colors.secondary, marginTop: 4 }}>
-                    {item.name}
-                  </Text>
-                  <Text variant="bodyMedium" style={[styles.galleryDesc, { marginTop: 4, marginBottom: 12 }]}>
-                    {item.description}
-                  </Text>
-                </View>
 
-                {/* Styled Large Image Container on bottom */}
-                <View style={[styles.galleryImageBox, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline }]}>
-                  <Avatar.Icon
-                    icon={item.bgIcon}
-                    size={64}
-                    style={{ backgroundColor: 'transparent' }}
-                    color={theme.colors.primary}
-                  />
-                  <Text variant="labelSmall" style={{ color: theme.colors.outline, marginTop: 8, fontStyle: 'italic' }}>
-                    Foto de Referencia
-                  </Text>
-                </View>
-              </Card.Content>
-            </Card>
-          ))}
-        </View>
       </ScrollView>
 
       {/* Guest Block Dialog */}
@@ -282,14 +312,19 @@ export default function HomeScreen() {
 
             {/* Scrollable Menu Items */}
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
-              {['Corte', 'Barba', 'Facial', 'Combo'].map((cat) => {
+              {(['promocion', 'cortes', 'barba', 'faciales'] as const).map((cat) => {
                 const filtered = services.filter(s => s.category === cat);
                 if (filtered.length === 0) return null;
+
+                const categoryTitle = 
+                  cat === 'promocion' ? 'PROMOCIONES Y OFERTAS' :
+                  cat === 'cortes' ? 'CORTES DE CABELLO' : 
+                  cat === 'barba' ? 'DISEÑO DE BARBA' : 'TERAPIAS FACIALES';
 
                 return (
                   <View key={cat} style={styles.modalCategorySection}>
                     <Text variant="titleMedium" style={[styles.modalCategoryTitle, { color: theme.colors.primary }]}>
-                      {cat === 'Corte' ? 'CORTES DE CABELLO' : cat === 'Barba' ? 'DISEÑO DE BARBA' : cat === 'Facial' ? 'TERAPIAS FACIALES' : 'COMBOS Y EXPERIENCIAS'}
+                      {categoryTitle}
                     </Text>
 
                     {filtered.map(s => (
@@ -307,25 +342,23 @@ export default function HomeScreen() {
                           </Text>
                           <View style={[styles.dottedLine, { borderBottomColor: 'rgba(212, 175, 55, 0.25)' }]} />
                           <Text style={[styles.modalServicePrice, { color: theme.colors.primary }]}>
-                            {s.price}
+                            {s.category === 'promocion' && s.promoPrice !== undefined ? (
+                              `S/. ${s.promoPrice}`
+                            ) : (
+                              `S/. ${s.price}`
+                            )}
                           </Text>
                         </View>
 
                         <Text variant="bodySmall" style={[styles.modalServiceDescription, { color: theme.colors.secondary }]}>
-                          {s.id === '1' ? 'Lavado purificante, corte de precisión adaptado a tu rostro, y estilizado con pomada importada de alta gama.' :
-                            s.id === '2' ? 'Corte clásico tradicional a tijera y máquina con acabado limpio y loción refrescante.' :
-                              s.id === '3' ? 'Diseño de barba con navaja libre, toallas calientes aromáticas y aceites de hidratación premium.' :
-                                s.id === '4' ? 'Recorte rápido a máquina y alineación de contornos para mantener tu barba impecable.' :
-                                  s.id === '5' ? 'Tratamiento detox con mascarilla de carbón activo para remover impurezas y puntos negros.' :
-                                    s.id === '6' ? 'Exfoliación facial profunda para renovación celular con mascarilla hidratante refrescante.' :
-                                      'La experiencia de lujo total. Corte Signature, perfilado de barba premium, exfoliación express y bebida de cortesía.'}
+                          {s.description || 'Sin descripción'}
                         </Text>
 
                         <View style={styles.serviceRowFooter}>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <IconSymbol size={13} name="clock" color={theme.colors.outline} style={{ marginRight: 4 }} />
                             <Text variant="labelSmall" style={[styles.modalServiceDuration, { color: theme.colors.secondary }]}>
-                              {s.duration}
+                              {s.duration} min
                             </Text>
                           </View>
                           <View style={styles.dotSeparator} />
