@@ -1,18 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, TouchableOpacity } from 'react-native';
-import { Text, Card, Button, Checkbox, useTheme, ProgressBar, IconButton, Divider } from 'react-native-paper';
+import { Text, Card, Button, Checkbox, useTheme, ProgressBar, IconButton, Divider, ActivityIndicator, Searchbar, Menu } from 'react-native-paper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { db } from '@/config/firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
 
 interface Service {
   id: string;
   name: string;
   price: number;
-  duration: string;
-  category: 'promo' | 'corte' | 'barba' | 'facial';
+  promoPrice?: number;
+  duration: number; // en minutos
+  category: 'promocion' | 'cortes' | 'barba' | 'faciales';
   description: string;
 }
+
+const CATEGORY_LABELS: Record<string, string> = {
+  promocion: 'Promoción',
+  cortes: 'Cortes',
+  barba: 'Barba',
+  faciales: 'Faciales'
+};
 
 export default function StepServiceScreen() {
   const theme = useTheme();
@@ -20,15 +30,46 @@ export default function StepServiceScreen() {
   const params = useLocalSearchParams();
   const { preselected } = params;
 
-  const services: Service[] = [
-    { id: '7', name: 'Combo VIP Imperial (Promo)', price: 75, duration: '50 min', category: 'promo', description: 'Corte Premium + Diseño de Barba + Exfoliación Facial Express + Bebida de cortesía.' },
-    { id: '1', name: 'Corte de Cabello Signature', price: 45, duration: '35 min', category: 'corte', description: 'Lavado premium, corte según fisonomía y acabado con pomada.' },
-    { id: '2', name: 'Corte de Cabello Clásico', price: 35, duration: '25 min', category: 'corte', description: 'Corte de cabello tradicional con tijera y máquina.' },
-    { id: '3', name: 'Perfilado de Barba Imperial', price: 30, duration: '20 min', category: 'barba', description: 'Diseño de barba con navaja, toalla caliente y aceites hidratantes.' },
-    { id: '4', name: 'Recorte de Barba Express', price: 20, duration: '15 min', category: 'barba', description: 'Recorte rápido a máquina y alineación de contornos.' },
-    { id: '5', name: 'Mascarilla Carbón Activo', price: 25, duration: '20 min', category: 'facial', description: 'Limpieza profunda de impurezas and puntos negros.' },
-    { id: '6', name: 'Exfoliación Facial & Hidratación', price: 20, duration: '15 min', category: 'facial', description: 'Tratamiento revitalizante para la piel del rostro.' },
-  ];
+  // Real database services state
+  const [services, setServices] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Filter states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [filterMenuVisible, setFilterMenuVisible] = useState(false);
+
+  // Combined filter logic
+  const filteredServices = services.filter((item) => {
+    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = categoryFilter === 'all' || item.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'services'), (snapshot) => {
+      const servicesList: Service[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        servicesList.push({
+          id: doc.id,
+          name: data.name || '',
+          price: Number(data.price) || 0,
+          promoPrice: data.promoPrice !== undefined ? Number(data.promoPrice) : undefined,
+          duration: Number(data.duration) || 0,
+          category: data.category || 'cortes',
+          description: data.description || '',
+        });
+      });
+      setServices(servicesList);
+      setLoading(false);
+    }, (err) => {
+      console.error("Error al cargar servicios en paso de reserva:", err);
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
 
   const [selectedIds, setSelectedIds] = useState<string[]>(
     preselected ? [preselected as string] : []
@@ -44,7 +85,10 @@ export default function StepServiceScreen() {
     return services.filter(s => selectedIds.includes(s.id));
   };
 
-  const totalAmount = getSelectedServices().reduce((sum, s) => sum + s.price, 0);
+  const totalAmount = getSelectedServices().reduce((sum, s) => {
+    const servicePrice = s.category === 'promocion' && s.promoPrice !== undefined ? s.promoPrice : s.price;
+    return sum + servicePrice;
+  }, 0);
 
   const handleNext = () => {
     if (selectedIds.length === 0) return;
@@ -79,6 +123,43 @@ export default function StepServiceScreen() {
         </View>
       </View>
 
+      {/* Filter Bar */}
+      {!loading && services.length > 0 && (
+        <View style={styles.filterBar}>
+          <Searchbar
+            placeholder="Buscar servicio..."
+            onChangeText={setSearchQuery}
+            value={searchQuery}
+            style={styles.searchbar}
+            inputStyle={styles.searchbarInput}
+            iconColor={theme.colors.outline}
+            rippleColor="rgba(197, 168, 128, 0.2)"
+          />
+          <Menu
+            visible={filterMenuVisible}
+            onDismiss={() => setFilterMenuVisible(false)}
+            anchor={
+              <Button
+                mode="outlined"
+                onPress={() => setFilterMenuVisible(true)}
+                style={styles.filterButton}
+                icon="filter-variant"
+                textColor={theme.colors.primary}
+                contentStyle={{ flexDirection: 'row-reverse' }}
+              >
+                {categoryFilter === 'all' ? 'Todas' : CATEGORY_LABELS[categoryFilter]}
+              </Button>
+            }
+          >
+            <Menu.Item onPress={() => { setCategoryFilter('all'); setFilterMenuVisible(false); }} title="Todas" />
+            <Menu.Item onPress={() => { setCategoryFilter('promocion'); setFilterMenuVisible(false); }} title="Promociones" />
+            <Menu.Item onPress={() => { setCategoryFilter('cortes'); setFilterMenuVisible(false); }} title="Cortes" />
+            <Menu.Item onPress={() => { setCategoryFilter('barba'); setFilterMenuVisible(false); }} title="Barba" />
+            <Menu.Item onPress={() => { setCategoryFilter('faciales'); setFilterMenuVisible(false); }} title="Faciales" />
+          </Menu>
+        </View>
+      )}
+
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text variant="headlineSmall" style={[styles.title, { color: theme.colors.secondary }]}>
           Selecciona los servicios
@@ -88,72 +169,91 @@ export default function StepServiceScreen() {
         </Text>
 
         {/* Categories */}
-        {(['promo', 'corte', 'barba', 'facial'] as const)
-          .filter(category => services.some(s => s.category === category))
-          .map(category => {
-            const categoryServices = services.filter(s => s.category === category);
-            const categoryTitle = 
-              category === 'promo' ? 'Promociones' :
-              category === 'corte' ? 'Cortes' : 
-              category === 'barba' ? 'Barba' : 'Tratamientos Faciales';
+        {loading ? (
+          <ActivityIndicator style={{ marginVertical: 40 }} color={theme.colors.primary} />
+        ) : filteredServices.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <IconSymbol size={48} name="magnifyingglass" color={theme.colors.outline} style={{ marginBottom: 12 }} />
+            <Text variant="bodyLarge" style={{ opacity: 0.5, textAlign: 'center' }}>
+              No se encontraron servicios con los filtros aplicados.
+            </Text>
+          </View>
+        ) : (
+          (['promocion', 'cortes', 'barba', 'faciales'] as const)
+            .filter(category => filteredServices.some(s => s.category === category))
+            .map(category => {
+              const categoryServices = filteredServices.filter(s => s.category === category);
+              const categoryTitle = 
+                category === 'promocion' ? 'Promociones' :
+                category === 'cortes' ? 'Cortes' : 
+                category === 'barba' ? 'Barba' : 'Tratamientos Faciales';
 
-            return (
-              <View key={category} style={styles.categoryBlock}>
-                <Text variant="titleMedium" style={[styles.categoryTitle, { color: theme.colors.primary }]}>
-                  {categoryTitle}
-                </Text>
-              
-              {categoryServices.map(service => {
-                const isSelected = selectedIds.includes(service.id);
-                return (
-                  <Card 
-                    key={service.id} 
-                    style={[
-                      styles.serviceCard, 
-                      { 
-                        backgroundColor: theme.colors.surface,
-                        borderColor: isSelected ? theme.colors.primary : 'rgba(150, 150, 150, 0.1)',
-                        borderWidth: isSelected ? 1.5 : 1
-                      }
-                    ]}
-                    onPress={() => handleToggleService(service.id)}
-                    elevation={isSelected ? 3 : 1}
-                  >
-                    <Card.Content style={styles.cardContent}>
-                      <View style={styles.cardMain}>
-                        <View style={{ flex: 1, paddingRight: 8 }}>
-                          <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
-                            {service.name}
-                          </Text>
-                          <Text variant="bodySmall" style={styles.cardDesc}>
-                            {service.description}
+              return (
+                <View key={category} style={styles.categoryBlock}>
+                  <Text variant="titleMedium" style={[styles.categoryTitle, { color: theme.colors.primary }]}>
+                    {categoryTitle}
+                  </Text>
+                
+                {categoryServices.map(service => {
+                  const isSelected = selectedIds.includes(service.id);
+                  const isPromo = service.category === 'promocion' && service.promoPrice !== undefined;
+
+                  return (
+                    <Card 
+                      key={service.id} 
+                      style={[
+                        styles.serviceCard, 
+                        { 
+                          backgroundColor: theme.colors.surface,
+                          borderColor: isSelected ? theme.colors.primary : 'rgba(150, 150, 150, 0.1)',
+                          borderWidth: isSelected ? 1.5 : 1
+                        }
+                      ]}
+                      onPress={() => handleToggleService(service.id)}
+                      elevation={isSelected ? 3 : 1}
+                    >
+                      <Card.Content style={styles.cardContent}>
+                        <View style={styles.cardMain}>
+                          <View style={{ flex: 1, paddingRight: 8 }}>
+                            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                              {service.name}
+                            </Text>
+                            <Text variant="bodySmall" style={styles.cardDesc}>
+                              {service.description || 'Sin descripción'}
+                            </Text>
+                          </View>
+                          <Checkbox.Android 
+                            status={isSelected ? 'checked' : 'unchecked'} 
+                            color={theme.colors.primary}
+                            onPress={() => handleToggleService(service.id)}
+                          />
+                        </View>
+                        
+                        <Divider style={{ marginVertical: 8, opacity: 0.2 }} />
+                        
+                        <View style={styles.cardFooter}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <IconSymbol size={16} name="clock" color={theme.colors.outline} style={{ marginRight: 6 }} />
+                            <Text variant="bodyMedium" style={styles.duration}>{service.duration} min</Text>
+                          </View>
+                          <Text variant="titleMedium" style={[styles.price, { color: theme.colors.primary }]}>
+                            {isPromo ? (
+                              <>
+                                S/. {service.promoPrice} <Text style={{ textDecorationLine: 'line-through', opacity: 0.5, fontSize: 13, color: theme.colors.secondary }}>S/. {service.price}</Text>
+                              </>
+                            ) : (
+                              `S/. ${service.price}`
+                            )}
                           </Text>
                         </View>
-                        <Checkbox.Android 
-                          status={isSelected ? 'checked' : 'unchecked'} 
-                          color={theme.colors.primary}
-                          onPress={() => handleToggleService(service.id)}
-                        />
-                      </View>
-                      
-                      <Divider style={{ marginVertical: 8, opacity: 0.2 }} />
-                      
-                      <View style={styles.cardFooter}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <IconSymbol size={16} name="clock" color={theme.colors.outline} style={{ marginRight: 6 }} />
-                          <Text variant="bodyMedium" style={styles.duration}>{service.duration}</Text>
-                        </View>
-                        <Text variant="titleMedium" style={[styles.price, { color: theme.colors.primary }]}>
-                          S/. {service.price}
-                        </Text>
-                      </View>
-                    </Card.Content>
-                  </Card>
-                );
-              })}
-            </View>
-          );
-        })}
+                      </Card.Content>
+                    </Card>
+                  );
+                })}
+              </View>
+            );
+          })
+        )}
       </ScrollView>
 
       {/* Persistent Footer with selection totals */}
@@ -279,5 +379,37 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 24,
     paddingVertical: 4,
+  },
+  filterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  searchbar: {
+    flex: 1,
+    height: 44,
+    backgroundColor: 'rgba(150, 150, 150, 0.05)',
+    borderRadius: 8,
+  },
+  searchbarInput: {
+    minHeight: 0,
+    fontSize: 14,
+    alignSelf: 'center',
+    paddingBottom: 4,
+  },
+  filterButton: {
+    height: 44,
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.2)',
+  },
+  emptyContainer: {
+    padding: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

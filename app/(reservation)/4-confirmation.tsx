@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView } from 'react-native';
-import { Text, Card, Button, useTheme, ProgressBar, IconButton, Divider, Portal, Dialog } from 'react-native-paper';
+import { Text, Card, Button, useTheme, ProgressBar, IconButton, Divider, Portal, Dialog, ActivityIndicator } from 'react-native-paper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { db } from '@/config/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 
 export default function StepConfirmationScreen() {
   const theme = useTheme();
@@ -15,19 +17,39 @@ export default function StepConfirmationScreen() {
 
   const [confirmDialogVisible, setConfirmDialogVisible] = useState(false);
 
-  // Mock mapping of service names
-  const serviceList = [
-    { id: '1', name: 'Corte de Cabello Signature', price: 45, duration: '35 min' },
-    { id: '2', name: 'Corte de Cabello Clásico', price: 35, duration: '25 min' },
-    { id: '3', name: 'Perfilado de Barba Imperial', price: 30, duration: '20 min' },
-    { id: '4', name: 'Recorte de Barba Express', price: 20, duration: '15 min' },
-    { id: '5', name: 'Mascarilla Carbón Activo', price: 25, duration: '20 min' },
-    { id: '6', name: 'Exfoliación Facial & Hidratación', price: 20, duration: '15 min' },
-  ];
+  // Real database services state
+  const [selectedServices, setSelectedServices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Filter selected services based on passed comma-separated string of IDs
-  const selectedServiceIds = serviceIds ? (serviceIds as string).split(',') : [];
-  const selectedServices = serviceList.filter(s => selectedServiceIds.includes(s.id));
+  useEffect(() => {
+    const fetchServices = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'services'));
+        const dbServices: any[] = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          dbServices.push({
+            id: doc.id,
+            name: data.name || '',
+            price: Number(data.price) || 0,
+            promoPrice: data.promoPrice !== undefined ? Number(data.promoPrice) : undefined,
+            duration: Number(data.duration) || 0,
+            category: data.category || 'cortes',
+          });
+        });
+        
+        const selectedIds = serviceIds ? (serviceIds as string).split(',') : [];
+        const filtered = dbServices.filter(s => selectedIds.includes(s.id));
+        setSelectedServices(filtered);
+      } catch (err) {
+        console.error("Error al cargar servicios en confirmación:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchServices();
+  }, [serviceIds]);
 
   const handleConfirm = () => {
     setConfirmDialogVisible(true);
@@ -114,26 +136,35 @@ export default function StepConfirmationScreen() {
               SERVICIOS SELECCIONADOS
             </Text>
             
-            <View style={styles.servicesList}>
-              {selectedServices.map(service => (
-                <View key={service.id} style={styles.serviceItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
-                      {service.name}
-                    </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                      <IconSymbol size={13} name="clock" color="#888888" style={{ marginRight: 4 }} />
-                      <Text variant="bodySmall" style={{ opacity: 0.5 }}>
-                        {service.duration}
+            {loading ? (
+              <ActivityIndicator style={{ marginVertical: 20 }} color={theme.colors.primary} />
+            ) : (
+              <View style={styles.servicesList}>
+                {selectedServices.map(service => {
+                  const isPromo = service.category === 'promocion' && service.promoPrice !== undefined;
+                  const activePrice = isPromo ? service.promoPrice : service.price;
+
+                  return (
+                    <View key={service.id} style={styles.serviceItem}>
+                      <View style={{ flex: 1 }}>
+                        <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                          {service.name}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                          <IconSymbol size={13} name="clock" color="#888888" style={{ marginRight: 4 }} />
+                          <Text variant="bodySmall" style={{ opacity: 0.5 }}>
+                            {service.duration} min
+                          </Text>
+                        </View>
+                      </View>
+                      <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                        S/. {activePrice}
                       </Text>
                     </View>
-                  </View>
-                  <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
-                    S/. {service.price}
-                  </Text>
-                </View>
-              ))}
-            </View>
+                  );
+                })}
+              </View>
+            )}
 
             <Divider style={styles.divider} />
 

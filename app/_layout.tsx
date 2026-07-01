@@ -26,6 +26,7 @@ const customLightTheme = {
     surfaceVariant: '#F5F2EC',
     outline: '#CCCCCC',
     error: '#BA1A1A',
+    backdrop: 'rgba(0, 0, 0, 0.70)', // Atenuado profundo para destacar el modal
   },
 };
 
@@ -43,6 +44,7 @@ const customDarkTheme = {
     surfaceVariant: '#2A2A2A',
     outline: '#444444',
     error: '#FFB4AB',
+    backdrop: 'rgba(0, 0, 0, 0.85)', // Atenuado cinematográfico en modo oscuro
   },
 };
 
