@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView } from 'react-native';
-import { Text, Card, Button, Avatar, useTheme, ProgressBar, IconButton, Badge } from 'react-native-paper';
+import { Text, Card, Button, Avatar, useTheme, ProgressBar, IconButton, Badge, ActivityIndicator } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { db } from '@/config/firebase';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 
 interface Barber {
   id: string;
   name: string;
-  photo: string;
-  rating: number;
-  reviewsCount: number;
-  specialty: string;
+  description: string;
+  imageUrl?: string;
 }
 
 export default function StepBarberScreen() {
@@ -21,12 +21,35 @@ export default function StepBarberScreen() {
   // Extract params from step 1
   const { serviceIds, totalPrice } = params;
 
-  const barbers: Barber[] = [
-    { id: '1', name: 'Carlos Mendoza', photo: 'CM', rating: 4.9, reviewsCount: 124, specialty: 'Experto en Degradados & Perfilado de Barba' },
-    { id: '2', name: 'Mateo Rivas', photo: 'MR', rating: 4.8, reviewsCount: 98, specialty: 'Especialista en Cortes Clásicos y Tijeras' },
-    { id: '3', name: 'Juan Perez', photo: 'JP', rating: 4.7, reviewsCount: 85, specialty: 'Afeitado Tradicional & Cuidado de la Piel' },
-    { id: '0', name: 'Cualquier Barbero Disponible', photo: '??', rating: 5.0, reviewsCount: 999, specialty: 'Elige esta opción para una cita más rápida' },
-  ];
+  // Real Firestore barbers state
+  const [barbers, setBarbers] = useState<Barber[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'users'), where('role', '==', 'barber'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const barbersList: Barber[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        // Solo mostrar barberos activos (isActive por defecto es true)
+        if (data.isActive !== false) {
+          barbersList.push({
+            id: doc.id,
+            name: data.name || '',
+            description: data.description || '',
+            imageUrl: data.imageUrl || '',
+          });
+        }
+      });
+      setBarbers(barbersList);
+      setLoading(false);
+    }, (err) => {
+      console.error("Error al cargar barberos en paso de reserva:", err);
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -79,53 +102,71 @@ export default function StepBarberScreen() {
         </Text>
 
         <View style={styles.barbersList}>
-          {barbers.map(barber => {
-            const isSelected = selectedId === barber.id;
-            return (
-              <Card
-                key={barber.id}
-                style={[
-                  styles.barberCard,
-                  {
-                    backgroundColor: theme.colors.surface,
-                    borderColor: isSelected ? theme.colors.primary : 'rgba(150, 150, 150, 0.1)',
-                    borderWidth: isSelected ? 1.5 : 1
-                  }
-                ]}
-                onPress={() => handleSelectBarber(barber.id)}
-                elevation={isSelected ? 3 : 1}
-              >
-                <Card.Content style={styles.cardContent}>
-                  <Avatar.Text
-                    size={50}
-                    label={barber.photo}
-                    style={[
-                      styles.avatar,
-                      { backgroundColor: barber.id === '0' ? theme.colors.surfaceVariant : theme.colors.primary }
-                    ]}
-                    labelStyle={{ color: barber.id === '0' ? theme.colors.primary : '#121212', fontWeight: 'bold' }}
-                  />
-                  <View style={styles.infoContainer}>
-                    <View style={styles.nameRow}>
-                      <Text variant="titleMedium" style={[styles.barberName, { color: theme.colors.secondary }]}>
-                        {barber.name}
-                      </Text>
-                      <View style={styles.ratingRow}>
-                        <IconButton icon="star" size={14} iconColor={theme.colors.primary} style={{ margin: 0, padding: 0 }} />
-                        <Text variant="bodySmall" style={styles.ratingText}>
-                          {barber.rating} <Text style={{ opacity: 0.5 }}>({barber.reviewsCount})</Text>
+          {loading ? (
+            <ActivityIndicator style={{ marginVertical: 40 }} color={theme.colors.primary} />
+          ) : barbers.length === 0 ? (
+            <Text variant="bodyMedium" style={{ textAlign: 'center', opacity: 0.5, marginVertical: 40 }}>
+              No hay barberos registrados disponibles.
+            </Text>
+          ) : (
+            barbers.map(barber => {
+              const isSelected = selectedId === barber.id;
+              const initials = barber.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
+              return (
+                <Card
+                  key={barber.id}
+                  style={[
+                    styles.barberCard,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: isSelected ? theme.colors.primary : 'rgba(150, 150, 150, 0.1)',
+                      borderWidth: isSelected ? 1.5 : 1
+                    }
+                  ]}
+                  onPress={() => handleSelectBarber(barber.id)}
+                  elevation={isSelected ? 3 : 1}
+                >
+                  <Card.Content style={[styles.cardContent, { alignItems: isSelected ? 'flex-start' : 'center' }]}>
+                    {barber.imageUrl ? (
+                      <Avatar.Image
+                        size={50}
+                        source={{ uri: barber.imageUrl }}
+                        style={styles.avatar}
+                      />
+                    ) : (
+                      <Avatar.Text
+                        size={50}
+                        label={initials}
+                        style={[
+                          styles.avatar,
+                          { backgroundColor: theme.colors.primary }
+                        ]}
+                        labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+                      />
+                    )}
+                    <View style={styles.infoContainer}>
+                      <View style={styles.nameRow}>
+                        <Text variant="titleMedium" style={[styles.barberName, { color: theme.colors.secondary }]}>
+                          {barber.name}
                         </Text>
+                        <IconButton
+                          icon={isSelected ? "chevron-up" : "chevron-down"}
+                          size={18}
+                          style={{ margin: 0, padding: 0 }}
+                          iconColor={theme.colors.primary}
+                        />
                       </View>
+                      
+                      <Text variant="bodySmall" style={{ opacity: 0.7, paddingRight: 4, lineHeight: 18 }} numberOfLines={isSelected ? undefined : 1}>
+                        {barber.description}
+                      </Text>
                     </View>
-                    
-                    <Text variant="bodySmall" style={styles.specialty}>
-                      {barber.specialty}
-                    </Text>
-                  </View>
-                </Card.Content>
-              </Card>
-            );
-          })}
+                  </Card.Content>
+                </Card>
+              );
+            })
+          )}
         </View>
       </ScrollView>
 
@@ -215,17 +256,7 @@ const styles = StyleSheet.create({
   barberName: {
     fontWeight: 'bold',
   },
-  ratingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  ratingText: {
-    fontWeight: 'bold',
-  },
-  specialty: {
-    opacity: 0.6,
-    fontSize: 12,
-  },
+
   footer: {
     position: 'absolute',
     bottom: 0,

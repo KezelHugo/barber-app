@@ -1,27 +1,130 @@
 import { useUserRole } from '@/context/user-role';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
-import { Avatar, Button, Card, Divider, List, Snackbar, Text, TextInput, useTheme } from 'react-native-paper';
+import { Avatar, Button, Card, Divider, List, Snackbar, Text, TextInput, useTheme, ActivityIndicator, Portal, Dialog, HelperText } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { auth, db } from '@/config/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { updatePassword } from 'firebase/auth';
 
 export default function ProfileScreen() {
   const theme = useTheme();
   const { role, userName, userEmail, logout } = useUserRole();
   const isGuest = role === 'guest';
 
-  // Personal states (mock edit)
-  const [phone, setPhone] = useState('987 654 321');
-  const [preferences, setPreferences] = useState(
-    'Corte degradado medio (Mid Fade), perfilado de barba fino, marcar patillas redondas, usar toalla caliente para afeitar.'
-  );
+  // Personal states loaded from Firestore
+  const [phone, setPhone] = useState('');
+  const [preferences, setPreferences] = useState('');
+  const [loading, setLoading] = useState(true);
 
   const [isEditing, setIsEditing] = useState(false);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMsg, setSnackbarMsg] = useState('');
 
-  const handleSave = () => {
-    setIsEditing(false);
-    setSnackbarVisible(true);
+  // Password changing states
+  const [passwordDialogVisible, setPasswordDialogVisible] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [loadingPassword, setLoadingPassword] = useState(false);
+
+  const handleUpdatePassword = async () => {
+    if (!newPassword.trim()) {
+      setPasswordError('Por favor, ingresa una nueva contraseña.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Las contraseñas no coinciden.');
+      return;
+    }
+
+    setLoadingPassword(true);
+    setPasswordError('');
+
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        await updatePassword(user, newPassword.trim());
+        setPasswordDialogVisible(false);
+        setNewPassword('');
+        setConfirmPassword('');
+        setSnackbarMsg('Contraseña actualizada con éxito.');
+        setSnackbarVisible(true);
+      } else {
+        setPasswordError('No se encontró una sesión de usuario activa.');
+      }
+    } catch (err: any) {
+      console.error("Error al actualizar contraseña:", err);
+      if (err.code === 'auth/requires-recent-login') {
+        setPasswordError('Por seguridad, debes cerrar sesión e iniciar sesión de nuevo antes de cambiar tu contraseña.');
+      } else {
+        setPasswordError('Error al actualizar la contraseña. Reinténtalo.');
+      }
+    } finally {
+      setLoadingPassword(false);
+    }
   };
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const user = auth.currentUser;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          setPhone(data.phone || '');
+          setPreferences(data.stylePreferences || '');
+        }
+      } catch (err) {
+        console.error("Error al cargar datos del perfil:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (!isGuest) {
+      fetchUserData();
+    } else {
+      setLoading(false);
+    }
+  }, [isGuest]);
+
+  const handleSave = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      setLoading(true);
+      await updateDoc(doc(db, 'users', user.uid), {
+        phone: phone.trim(),
+        stylePreferences: preferences.trim()
+      });
+      setIsEditing(false);
+      setSnackbarMsg('Preferencias guardadas exitosamente.');
+      setSnackbarVisible(true);
+    } catch (err) {
+      console.error("Error al guardar preferencias de estilo:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </SafeAreaView>
+    );
+  }
 
   if (isGuest) {
     return (
@@ -119,11 +222,22 @@ export default function ProfileScreen() {
           <Card style={[styles.card, { backgroundColor: theme.colors.surface }]} elevation={1}>
             <List.Section style={{ marginVertical: 0 }}>
               <List.Subheader style={{ color: theme.colors.primary, fontWeight: 'bold' }}>DATOS PERSONALES</List.Subheader>
-              <List.Item
-                title="Teléfono"
-                description={phone}
-                left={(props) => <List.Icon {...props} icon="phone" color={theme.colors.primary} />}
-              />
+              {isEditing ? (
+                <TextInput
+                  label="Teléfono"
+                  value={phone}
+                  onChangeText={setPhone}
+                  mode="outlined"
+                  keyboardType="phone-pad"
+                  style={{ marginHorizontal: 16, marginVertical: 8 }}
+                />
+              ) : (
+                <List.Item
+                  title="Teléfono"
+                  description={phone || 'No registrado'}
+                  left={(props) => <List.Icon {...props} icon="phone" color={theme.colors.primary} />}
+                />
+              )}
               <Divider style={styles.divider} />
               <List.Item
                 title="Ubicación Habitual"
@@ -143,11 +257,21 @@ export default function ProfileScreen() {
           {/* Actions */}
           <View style={styles.actionsContainer}>
             <Button
-              mode="contained"
+              mode="outlined"
+              onPress={() => setPasswordDialogVisible(true)}
+              style={{ borderColor: theme.colors.primary, marginBottom: 12, borderRadius: 8 }}
+              icon="lock-reset"
+              labelStyle={{ color: theme.colors.primary, fontWeight: 'bold' }}
+            >
+              Cambiar Contraseña
+            </Button>
+
+            <Button
+              mode="outlined"
               onPress={() => logout()}
-              style={[styles.logoutBtn, { backgroundColor: theme.colors.error }]}
+              style={{ borderColor: theme.colors.primary, borderRadius: 8 }}
               icon="logout"
-              labelStyle={{ fontWeight: 'bold' }}
+              labelStyle={{ color: theme.colors.primary, fontWeight: 'bold' }}
             >
               Cerrar Sesión
             </Button>
@@ -155,13 +279,65 @@ export default function ProfileScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* Change Password Dialog */}
+      <Portal>
+        <Dialog
+          visible={passwordDialogVisible}
+          onDismiss={() => !loadingPassword && setPasswordDialogVisible(false)}
+          style={{ backgroundColor: theme.colors.surface, borderRadius: 4 }}
+        >
+          <Dialog.Title style={{ color: theme.colors.primary }}>Cambiar Contraseña</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="Nueva Contraseña"
+              value={newPassword}
+              onChangeText={setNewPassword}
+              mode="outlined"
+              secureTextEntry
+              disabled={loadingPassword}
+              style={{ marginBottom: 12 }}
+            />
+            <TextInput
+              label="Confirmar Contraseña"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              mode="outlined"
+              secureTextEntry
+              disabled={loadingPassword}
+              style={{ marginBottom: 8 }}
+            />
+            {passwordError ? (
+              <HelperText type="error" visible={!!passwordError}>
+                {passwordError}
+              </HelperText>
+            ) : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPasswordDialogVisible(false)} textColor={theme.colors.outline} disabled={loadingPassword}>
+              Cancelar
+            </Button>
+            <Button
+              onPress={handleUpdatePassword}
+              textColor={theme.colors.primary}
+              labelStyle={{ fontWeight: 'bold' }}
+              loading={loadingPassword}
+              disabled={loadingPassword}
+            >
+              Actualizar
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
       <Snackbar
         visible={snackbarVisible}
         onDismiss={() => setSnackbarVisible(false)}
-        duration={2000}
-        style={{ backgroundColor: '#4CAF50' }}
+        duration={3000}
+        style={{ backgroundColor: theme.colors.secondary }}
       >
-        Preferencias guardadas exitosamente.
+        <Text style={{ color: theme.colors.background, fontWeight: 'bold' }}>
+          {snackbarMsg}
+        </Text>
       </Snackbar>
     </SafeAreaView>
   );
