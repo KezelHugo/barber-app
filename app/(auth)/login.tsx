@@ -32,13 +32,13 @@ export default function LoginScreen() {
     }
   };
 
-  const handleDevBypass = async (devEmail: string) => {
+  const handleDevBypass = async (devEmail: string, devPass: string) => {
     setLoading(true);
     setError('');
     try {
-      await signIn(devEmail, 'password123');
+      await signIn(devEmail, devPass);
     } catch (err: any) {
-      setError(`Prueba fallida. Asegúrate de registrar en Firebase: ${devEmail} / password123`);
+      setError(`Prueba fallida. Asegúrate de registrar en Firebase: ${devEmail} / ${devPass}`);
     } finally {
       setLoading(false);
     }
@@ -155,7 +155,7 @@ export default function LoginScreen() {
               <View style={styles.devButtons}>
                 <Button
                   mode="contained-tonal"
-                  onPress={() => handleDevBypass('cliente@barberapp.com')}
+                  onPress={() => handleDevBypass('cliente@barberapp.com', 'password123')}
                   disabled={loading}
                   style={styles.devBtn}
                   compact
@@ -164,7 +164,7 @@ export default function LoginScreen() {
                 </Button>
                 <Button
                   mode="contained-tonal"
-                  onPress={() => handleDevBypass('barbero@barberapp.com')}
+                  onPress={() => handleDevBypass('miguel.rojas@barberapp.com', '70123456')}
                   disabled={loading}
                   style={styles.devBtn}
                   compact
@@ -173,7 +173,7 @@ export default function LoginScreen() {
                 </Button>
                 <Button
                   mode="contained-tonal"
-                  onPress={() => handleDevBypass('admin@barberapp.com')}
+                  onPress={() => handleDevBypass('admin@barberapp.com', 'password123')}
                   disabled={loading}
                   style={styles.devBtn}
                   compact

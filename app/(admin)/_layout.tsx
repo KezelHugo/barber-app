@@ -1,8 +1,8 @@
-import React from 'react';
-import { useTheme } from 'react-native-paper';
-import { Tabs } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Tabs } from 'expo-router';
+import React from 'react';
 import { Platform } from 'react-native';
+import { useTheme } from 'react-native-paper';
 
 export default function AdminLayout() {
   const theme = useTheme();
@@ -57,6 +57,54 @@ export default function AdminLayout() {
         options={{
           title: 'Ajustes',
           tabBarIcon: ({ color }) => <IconSymbol size={26} name="person.fill" color={color} />,
+        }}
+      />
+      {/* Hidden barbers screen */}
+      <Tabs.Screen
+        name="barbers"
+        options={{
+          title: 'Barberos',
+          href: null,
+        }}
+      />
+      {/* Hidden barber detail screen */}
+      <Tabs.Screen
+        name="barber-detail"
+        options={{
+          title: 'Detalle Barbero',
+          href: null,
+        }}
+      />
+      {/* Hidden admins screen */}
+      <Tabs.Screen
+        name="admins"
+        options={{
+          title: 'Administradores',
+          href: null,
+        }}
+      />
+      {/* Hidden admin detail screen */}
+      <Tabs.Screen
+        name="admin-detail"
+        options={{
+          title: 'Detalle Administrador',
+          href: null,
+        }}
+      />
+      {/* Hidden customers screen */}
+      <Tabs.Screen
+        name="customers"
+        options={{
+          title: 'Clientes',
+          href: null,
+        }}
+      />
+      {/* Hidden customer detail screen */}
+      <Tabs.Screen
+        name="customer-detail"
+        options={{
+          title: 'Detalle Cliente',
+          href: null,
         }}
       />
     </Tabs>
