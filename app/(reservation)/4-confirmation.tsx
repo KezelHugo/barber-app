@@ -4,8 +4,8 @@ import { Text, Card, Button, useTheme, ProgressBar, IconButton, Divider, Portal,
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { db } from '@/config/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { auth, db } from '@/config/firebase';
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 
 export default function StepConfirmationScreen() {
   const theme = useTheme();
@@ -20,16 +20,18 @@ export default function StepConfirmationScreen() {
   // Real database services state
   const [selectedServices, setSelectedServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingSave, setLoadingSave] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     const fetchServices = async () => {
       try {
         const querySnapshot = await getDocs(collection(db, 'services'));
         const dbServices: any[] = [];
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
+        querySnapshot.forEach((docSnap) => {
+          const data = docSnap.data();
           dbServices.push({
-            id: doc.id,
+            id: docSnap.id,
             name: data.name || '',
             price: Number(data.price) || 0,
             promoPrice: data.promoPrice !== undefined ? Number(data.promoPrice) : undefined,
@@ -51,8 +53,78 @@ export default function StepConfirmationScreen() {
     fetchServices();
   }, [serviceIds]);
 
-  const handleConfirm = () => {
-    setConfirmDialogVisible(true);
+  const handleConfirm = async () => {
+    setLoadingSave(true);
+    setErrorMsg('');
+
+    try {
+      // 1. Anti-overlap double check in Firestore
+      const conflictQuery = query(
+        collection(db, 'appointments'),
+        where('barberId', '==', barberId),
+        where('date', '==', date),
+        where('time', '==', time)
+      );
+      const conflictSnapshot = await getDocs(conflictQuery);
+      let isOccupied = false;
+      conflictSnapshot.forEach((docSnap) => {
+        if (docSnap.data().status !== 'cancelled') {
+          isOccupied = true;
+        }
+      });
+
+      if (isOccupied) {
+        setErrorMsg('Lo sentimos, este horario acaba de ser reservado por otro cliente. Por favor regresa y elige otro horario.');
+        setLoadingSave(false);
+        return;
+      }
+
+      // 2. Fetch current user profile if available
+      let customerName = 'Cliente';
+      let customerPhone = '';
+      let customerEmail = auth.currentUser?.email || '';
+
+      if (auth.currentUser) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+          if (userDoc.exists()) {
+            const uData = userDoc.data();
+            customerName = uData.name || customerName;
+            customerPhone = uData.phone || '';
+          }
+        } catch (err) {
+          console.error("Error al obtener perfil del cliente:", err);
+        }
+      }
+
+      // 3. Save to /appointments in Firestore
+      const servicesSummary = selectedServices.map(s => s.name).join(', ') || 'Servicios de Barbería';
+      const newDocRef = doc(collection(db, 'appointments'));
+
+      await setDoc(newDocRef, {
+        id: newDocRef.id,
+        customerId: auth.currentUser?.uid || 'guest',
+        customerName,
+        customerPhone,
+        customerEmail,
+        barberId: barberId || '',
+        barberName: barberName || '',
+        serviceIds: serviceIds ? (serviceIds as string).split(',') : [],
+        servicesSummary,
+        totalPrice: Number(totalPrice) || 0,
+        date: date || '',
+        time: time || '',
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      });
+
+      setConfirmDialogVisible(true);
+    } catch (err) {
+      console.error("Error al registrar cita en Firestore:", err);
+      setErrorMsg('Ocurrió un error al procesar la reserva. Inténtalo de nuevo.');
+    } finally {
+      setLoadingSave(false);
+    }
   };
 
   const handleFinish = () => {
@@ -174,6 +246,14 @@ export default function StepConfirmationScreen() {
                 S/. {totalPrice}
               </Text>
             </View>
+
+            {errorMsg ? (
+              <View style={{ backgroundColor: 'rgba(244, 67, 54, 0.15)', padding: 12, borderRadius: 8, marginTop: 12 }}>
+                <Text style={{ color: theme.colors.error, fontWeight: 'bold', fontSize: 13, textAlign: 'center' }}>
+                  {errorMsg}
+                </Text>
+              </View>
+            ) : null}
           </Card.Content>
         </Card>
       </ScrollView>
@@ -183,10 +263,12 @@ export default function StepConfirmationScreen() {
         <Button
           mode="contained"
           onPress={handleConfirm}
+          loading={loadingSave}
+          disabled={loadingSave}
           style={[styles.confirmBtn, { backgroundColor: theme.colors.primary }]}
           labelStyle={{ color: '#121212', fontWeight: 'bold', fontSize: 16 }}
         >
-          Confirmar Reserva
+          {loadingSave ? 'Guardando Reserva...' : 'Confirmar Reserva'}
         </Button>
       </View>
 

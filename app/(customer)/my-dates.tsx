@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, ScrollView, FlatList } from 'react-native';
-import { Text, Card, Button, SegmentedButtons, useTheme, Portal, Dialog, Badge, IconButton, Snackbar } from 'react-native-paper';
+import { auth, db } from '@/config/firebase';
+import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import { FlatList, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Badge, Button, Card, Dialog, IconButton, Portal, SegmentedButtons, Snackbar, Text, useTheme } from 'react-native-paper';
 import { useUserRole } from '@/context/user-role';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -24,6 +26,7 @@ export default function MyDatesScreen() {
 
   const [activeTab, setActiveTab] = useState('upcoming');
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [loading, setLoading] = useState(true);
   
   // Dialog visibility states
   const [payDialogVisible, setPayDialogVisible] = useState(false);
@@ -31,55 +34,47 @@ export default function MyDatesScreen() {
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMsg, setSnackbarMsg] = useState('');
 
-  // Mock list of appointments
-  const [appointments, setAppointments] = useState<Appointment[]>([
-    {
-      id: '101',
-      service: 'Corte de Cabello Signature & Lavado',
-      barber: 'Carlos Mendoza',
-      barberPhoto: 'CM',
-      date: '15 de Junio, 2026',
-      time: '11:00 AM',
-      price: 'S/. 45',
-      status: 'pending',
-      cancelable: true,
-    },
-    {
-      id: '102',
-      service: 'Perfilado de Barba Premium & Toalla Caliente',
-      barber: 'Mateo Rivas',
-      barberPhoto: 'MR',
-      date: '24 de Junio, 2026',
-      time: '04:30 PM',
-      price: 'S/. 30',
-      status: 'pending',
-      cancelable: true,
-    },
-    {
-      id: '99',
-      service: 'Combo Corte & Barba VIP',
-      barber: 'Carlos Mendoza',
-      barberPhoto: 'CM',
-      date: '02 de Junio, 2026',
-      time: '02:00 PM',
-      price: 'S/. 65',
-      status: 'completed',
-      cancelable: false,
-      rating: 0,
-    },
-    {
-      id: '98',
-      service: 'Tratamiento Facial Exfoliante',
-      barber: 'Juan Perez',
-      barberPhoto: 'JP',
-      date: '20 de Mayo, 2026',
-      time: '10:00 AM',
-      price: 'S/. 25',
-      status: 'completed',
-      cancelable: false,
-      rating: 5,
-    },
-  ]);
+  // Firestore real-time list of appointments for logged in customer
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+
+  useEffect(() => {
+    if (isGuest || !auth.currentUser) {
+      setLoading(false);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'appointments'),
+      where('customerId', '==', auth.currentUser.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: Appointment[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const initials = data.barberName ? data.barberName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase() : 'B';
+        list.push({
+          id: docSnap.id,
+          service: data.servicesSummary || 'Servicio de Barbería',
+          barber: data.barberName || 'Barbero',
+          barberPhoto: initials,
+          date: data.date || '',
+          time: data.time || '',
+          price: `S/. ${data.totalPrice || 0}`,
+          status: data.status || 'pending',
+          cancelable: data.status === 'pending' || data.status === 'paid',
+          rating: data.rating || 0
+        });
+      });
+      setAppointments(list);
+      setLoading(false);
+    }, (err) => {
+      console.error("Error al escuchar citas del cliente:", err);
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, [isGuest]);
 
   const upcomingAppointments = appointments.filter(a => a.status === 'pending' || a.status === 'paid');
   const pastAppointments = appointments.filter(a => a.status === 'completed' || a.status === 'cancelled');
@@ -94,34 +89,50 @@ export default function MyDatesScreen() {
     setCancelDialogVisible(true);
   };
 
-  const confirmPayment = () => {
+  const confirmPayment = async () => {
     if (selectedAppointment) {
-      setAppointments(prev =>
-        prev.map(a => a.id === selectedAppointment.id ? { ...a, status: 'paid' } : a)
-      );
-      setPayDialogVisible(false);
-      setSnackbarMsg('¡Pago reportado! Esperando validación.');
-      setSnackbarVisible(true);
+      try {
+        await updateDoc(doc(db, 'appointments', selectedAppointment.id), {
+          status: 'paid'
+        });
+        setPayDialogVisible(false);
+        setSnackbarMsg('¡Cita marcada como pagada con éxito!');
+        setSnackbarVisible(true);
+      } catch (err) {
+        console.error("Error al actualizar estado del pago:", err);
+        setSnackbarMsg('Error al actualizar el pago.');
+        setSnackbarVisible(true);
+      }
     }
   };
 
-  const confirmCancel = () => {
+  const confirmCancel = async () => {
     if (selectedAppointment) {
-      setAppointments(prev =>
-        prev.map(a => a.id === selectedAppointment.id ? { ...a, status: 'cancelled' } : a)
-      );
-      setCancelDialogVisible(false);
-      setSnackbarMsg('Tu cita ha sido cancelada exitosamente.');
-      setSnackbarVisible(true);
+      try {
+        await updateDoc(doc(db, 'appointments', selectedAppointment.id), {
+          status: 'cancelled'
+        });
+        setCancelDialogVisible(false);
+        setSnackbarMsg('Tu cita ha sido cancelada exitosamente.');
+        setSnackbarVisible(true);
+      } catch (err) {
+        console.error("Error al cancelar cita:", err);
+        setSnackbarMsg('Error al cancelar la cita.');
+        setSnackbarVisible(true);
+      }
     }
   };
 
-  const handleRate = (apptId: string, stars: number) => {
-    setAppointments(prev =>
-      prev.map(a => a.id === apptId ? { ...a, rating: stars } : a)
-    );
-    setSnackbarMsg(`¡Gracias por calificar con ${stars} estrellas!`);
-    setSnackbarVisible(true);
+  const handleRate = async (apptId: string, stars: number) => {
+    try {
+      await updateDoc(doc(db, 'appointments', apptId), {
+        rating: stars
+      });
+      setSnackbarMsg(`¡Gracias por calificar con ${stars} estrellas!`);
+      setSnackbarVisible(true);
+    } catch (err) {
+      console.error("Error al enviar calificación:", err);
+    }
   };
 
   if (isGuest) {
@@ -182,7 +193,9 @@ export default function MyDatesScreen() {
 
       {/* List */}
       <ScrollView contentContainerStyle={styles.listContainer} showsVerticalScrollIndicator={false}>
-        {activeTab === 'upcoming' ? (
+        {loading ? (
+          <ActivityIndicator style={{ marginVertical: 40 }} color={theme.colors.primary} />
+        ) : activeTab === 'upcoming' ? (
           upcomingAppointments.length === 0 ? (
             <View style={styles.emptyContainer}>
               <IconButton icon="calendar-blank" size={48} iconColor={theme.colors.outline} />

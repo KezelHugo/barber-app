@@ -1,16 +1,41 @@
 import { useUserRole } from '@/context/user-role';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Avatar, Button, Card, Divider, List, Text, useTheme, Portal, Dialog, TextInput, HelperText, Snackbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth } from '@/config/firebase';
+import { auth, db } from '@/config/firebase';
 import { updatePassword } from 'firebase/auth';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 export default function AdminProfileScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { userName, userEmail, logout } = useUserRole();
+
+  // Working hours summary state
+  const [workingHoursSummary, setWorkingHoursSummary] = useState('Lunes a Domingo • 09:00 AM - 09:00 PM');
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'business_settings', 'working_hours'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && data.days) {
+          const daysObj = data.days;
+          const openDays = Object.values(daysObj).filter((d: any) => d.isOpen);
+          if (openDays.length === 0) {
+            setWorkingHoursSummary('Cerrado temporalmente');
+          } else {
+            const first = openDays[0] as any;
+            setWorkingHoursSummary(`${openDays.length} días activos • ${first.openTime} - ${first.closeTime}`);
+          }
+        }
+      }
+    }, (err) => {
+      console.error("Error al escuchar horarios de atención:", err);
+    });
+    return unsub;
+  }, []);
 
   // Password changing states
   const [passwordDialogVisible, setPasswordDialogVisible] = useState(false);
@@ -122,9 +147,10 @@ export default function AdminProfileScreen() {
 
             <List.Item
               title="Horarios de Atención"
-              description="Lunes a Domingo • 09:00 AM - 09:00 PM"
+              description={workingHoursSummary}
               left={(props) => <List.Icon {...props} icon="clock-outline" color={theme.colors.primary} />}
               right={(props) => <List.Icon {...props} icon="chevron-right" />}
+              onPress={() => router.push('/(admin)/working-hours')}
             />
             <Divider style={styles.divider} />
 

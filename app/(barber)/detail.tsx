@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, ScrollView } from 'react-native';
+import { StyleSheet, View, ScrollView, Linking } from 'react-native';
 import { Text, Card, Button, Avatar, useTheme, IconButton, List, Divider } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -19,7 +19,13 @@ export default function AppointmentDetailScreen() {
   const params = useLocalSearchParams();
 
   // Extract client parameters
-  const { clientId, clientName, service, time } = params;
+  const { clientId, clientName, clientPhone, service, date, time } = params;
+
+  const handleCall = () => {
+    if (clientPhone) {
+      Linking.openURL(`tel:${clientPhone}`);
+    }
+  };
 
   // Mock past services for this client
   const history: PastService[] = [
@@ -68,11 +74,23 @@ export default function AppointmentDetailScreen() {
               {clientName || 'Cliente'}
             </Text>
             <Text variant="bodyMedium" style={styles.timeTag}>
-              Cita de hoy: <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{time || '09:00 AM'}</Text>
+              Cita: <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{date || 'Fecha'} • {time || '09:00 AM'}</Text>
             </Text>
             <Text variant="bodySmall" style={{ opacity: 0.5, marginTop: 4 }}>
-              Servicio solicitado: {service || 'Corte Signature'}
+              Servicios: {service || 'Corte Signature'}
             </Text>
+            {clientPhone ? (
+              <Button
+                mode="outlined"
+                icon="phone"
+                onPress={handleCall}
+                style={{ marginTop: 12, borderColor: theme.colors.primary }}
+                textColor={theme.colors.primary}
+                compact
+              >
+                Llamar: {clientPhone}
+              </Button>
+            ) : null}
           </Card.Content>
         </Card>
 

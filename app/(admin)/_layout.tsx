@@ -107,6 +107,14 @@ export default function AdminLayout() {
           href: null,
         }}
       />
+      {/* Hidden working hours screen */}
+      <Tabs.Screen
+        name="working-hours"
+        options={{
+          title: 'Horarios de Atención',
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
