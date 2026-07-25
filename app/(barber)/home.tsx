@@ -1,7 +1,10 @@
+import { auth, db } from '@/config/firebase';
+import { useUserRole } from '@/context/user-role';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Avatar, Badge, Button, Card, Snackbar, Text, useTheme } from 'react-native-paper';
+import { ActivityIndicator, Avatar, Badge, Button, Card, Snackbar, Text, useTheme } from 'react-native-paper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -9,7 +12,9 @@ interface BarberAppointment {
   id: string;
   clientName: string;
   clientAvatar: string;
+  clientPhone?: string;
   service: string;
+  date: string;
   time: string;
   status: 'pending' | 'attended' | 'no_show';
 }
@@ -17,31 +22,81 @@ interface BarberAppointment {
 export default function BarberHomeScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const { userName } = useUserRole();
 
-  // Mock list of today's appointments
-  const [appointments, setAppointments] = useState<BarberAppointment[]>([
-    { id: '1', clientName: 'Kevin Guerrero', clientAvatar: 'KG', service: 'Corte Signature + Lavado', time: '09:00 AM', status: 'pending' },
-    { id: '2', clientName: 'Luis Flores', clientAvatar: 'LF', service: 'Perfilado de Barba Premium', time: '10:30 AM', status: 'pending' },
-    { id: '3', clientName: 'Andres Silva', clientAvatar: 'AS', service: 'Combo Corte & Barba Imperial', time: '12:00 PM', status: 'pending' },
-    { id: '4', clientName: 'Diego Torres', clientAvatar: 'DT', service: 'Tratamiento Facial Exfoliante', time: '02:30 PM', status: 'pending' },
-    { id: '5', clientName: 'Sebastian Rivas', clientAvatar: 'SR', service: 'Corte de Cabello Clásico', time: '04:00 PM', status: 'pending' },
-  ]);
+  const [appointments, setAppointments] = useState<BarberAppointment[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMsg, setSnackbarMsg] = useState('');
-  const [snackbarColor, setSnackbarColor] = useState('#4CAF50'); // Green by default
+  const [snackbarColor, setSnackbarColor] = useState('#4CAF50');
 
-  const updateStatus = (id: string, newStatus: 'attended' | 'no_show') => {
-    setAppointments(prev =>
-      prev.map(a => a.id === id ? { ...a, status: newStatus } : a)
-    );
+  // Listen to appointments in Firestore for current logged-in barber
+  useEffect(() => {
+    const currentUid = auth.currentUser?.uid;
+    const q = collection(db, 'appointments');
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: BarberAppointment[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        // Match either barberId == currentUid OR barberName matches userName
+        const isMyAppointment = (currentUid && data.barberId === currentUid) ||
+          (data.barberName && userName && data.barberName.toLowerCase() === userName.toLowerCase());
+
+        if (isMyAppointment || !currentUid) {
+          const initials = data.customerName
+            ? data.customerName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()
+            : 'CL';
+
+          let mappedStatus: 'pending' | 'attended' | 'no_show' = 'pending';
+          if (data.status === 'completed') mappedStatus = 'attended';
+          if (data.status === 'cancelled') mappedStatus = 'no_show';
+
+          list.push({
+            id: docSnap.id,
+            clientName: data.customerName || 'Cliente',
+            clientAvatar: initials,
+            clientPhone: data.customerPhone || '',
+            service: data.servicesSummary || 'Corte / Servicio',
+            date: data.date || '',
+            time: data.time || '',
+            status: mappedStatus
+          });
+        }
+      });
+
+      setAppointments(list);
+      setLoading(false);
+    }, (err) => {
+      console.error("Error al escuchar citas del barbero:", err);
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, [userName]);
+
+  const updateStatus = async (id: string, newStatus: 'attended' | 'no_show') => {
+    const targetStatus = newStatus === 'attended' ? 'completed' : 'cancelled';
     const appt = appointments.find(a => a.id === id);
-    const msg = newStatus === 'attended'
-      ? `¡Cita de ${appt?.clientName} marcada como Atendida!`
-      : `Cita de ${appt?.clientName} marcada como No Asistió.`;
-    setSnackbarMsg(msg);
-    setSnackbarColor(newStatus === 'attended' ? '#4CAF50' : '#D32F2F'); // Green for attended, Red for no-show
-    setSnackbarVisible(true);
+
+    try {
+      await updateDoc(doc(db, 'appointments', id), {
+        status: targetStatus
+      });
+
+      const msg = newStatus === 'attended'
+        ? `¡Cita de ${appt?.clientName} marcada como Atendida!`
+        : `Cita de ${appt?.clientName} marcada como No Asistió.`;
+      setSnackbarMsg(msg);
+      setSnackbarColor(newStatus === 'attended' ? '#4CAF50' : '#D32F2F');
+      setSnackbarVisible(true);
+    } catch (err) {
+      console.error("Error al actualizar estado de la cita:", err);
+      setSnackbarMsg("Error al actualizar estado en la base de datos.");
+      setSnackbarColor('#D32F2F');
+      setSnackbarVisible(true);
+    }
   };
 
   const handleCardPress = (item: BarberAppointment) => {
@@ -50,7 +105,9 @@ export default function BarberHomeScreen() {
       params: {
         clientId: item.id,
         clientName: item.clientName,
+        clientPhone: item.clientPhone || '',
         service: item.service,
+        date: item.date,
         time: item.time,
       }
     });
@@ -67,7 +124,7 @@ export default function BarberHomeScreen() {
             Mi Agenda
           </Text>
           <Text variant="bodySmall" style={styles.headerSubtitle}>
-            Agenda de hoy • 11 de Junio, 2026
+            Citas asignadas registradas en el sistema
           </Text>
         </View>
         <Badge size={28} style={[styles.badge, { backgroundColor: theme.colors.primary, color: '#121212' }]}>
@@ -79,13 +136,20 @@ export default function BarberHomeScreen() {
         {/* Helper Banner */}
         <View style={[styles.helperBanner, { backgroundColor: theme.colors.surfaceVariant }]}>
           <Text variant="bodySmall" style={{ textAlign: 'center', opacity: 0.7 }}>
-            Toca una cita para ver el historial y preferencias del cliente.
+            Toca una cita para ver los detalles completos del cliente.
           </Text>
         </View>
 
         {/* Chronological Appointments List */}
         <View style={styles.listContainer}>
-          {appointments.map((item) => {
+          {loading ? (
+            <ActivityIndicator style={{ marginVertical: 40 }} color={theme.colors.primary} />
+          ) : appointments.length === 0 ? (
+            <Text variant="bodyMedium" style={{ textAlign: 'center', opacity: 0.5, marginVertical: 40 }}>
+              No tienes citas programadas por el momento.
+            </Text>
+          ) : (
+            appointments.map((item) => {
             const isAttended = item.status === 'attended';
             const isNoShow = item.status === 'no_show';
             const isPending = item.status === 'pending';
@@ -172,7 +236,7 @@ export default function BarberHomeScreen() {
                 </Card.Content>
               </Card>
             );
-          })}
+          }))}
         </View>
       </ScrollView>
 

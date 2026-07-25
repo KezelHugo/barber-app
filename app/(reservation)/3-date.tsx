@@ -1,17 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView, FlatList, TouchableOpacity } from 'react-native';
-import { Text, Card, Button, useTheme, ProgressBar, IconButton } from 'react-native-paper';
+import { Text, Card, Button, useTheme, ProgressBar, IconButton, ActivityIndicator } from 'react-native-paper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { db } from '@/config/firebase';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 
 interface DateItem {
   id: string;
-  dayName: string; // e.g. "Lun"
+  dayName: string; // e.g. "LUN"
   dayNumber: string; // e.g. "15"
-  month: string; // e.g. "Jun"
+  month: string; // e.g. "JUN"
   fullString: string;
+  rawDate: Date;
 }
+
+const ALL_TIME_SLOTS = [
+  '06:00 AM', '06:30 AM', '07:00 AM', '07:30 AM', '08:00 AM', '08:30 AM', '09:00 AM', '09:30 AM',
+  '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM', '12:00 PM', '12:30 PM', '01:00 PM', '01:30 PM',
+  '02:00 PM', '02:30 PM', '03:00 PM', '03:30 PM', '04:00 PM', '04:30 PM', '05:00 PM', '05:30 PM',
+  '06:00 PM', '06:30 PM', '07:00 PM', '07:30 PM', '08:00 PM', '08:30 PM', '09:00 PM', '09:30 PM',
+  '10:00 PM', '10:30 PM', '11:00 PM'
+];
+
+const DAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 export default function StepDateScreen() {
   const theme = useTheme();
@@ -23,7 +36,7 @@ export default function StepDateScreen() {
 
   // Generate next 7 days dynamically
   const getNextDays = (): DateItem[] => {
-    const days = [];
+    const days: DateItem[] = [];
     const locale = 'es-ES';
     const today = new Date();
     
@@ -45,7 +58,8 @@ export default function StepDateScreen() {
         dayName: dayName.substring(0, 3),
         dayNumber,
         month,
-        fullString
+        fullString,
+        rawDate: nextDate
       });
     }
     return days;
@@ -53,16 +67,87 @@ export default function StepDateScreen() {
 
   const dates = getNextDays();
   const [selectedDateId, setSelectedDateId] = useState<string>('0');
-  
-  // Available slots
-  const timeSlots = [
-    '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
-    '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM',
-    '06:00 PM', '07:00 PM', '08:00 PM'
-  ];
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
+  // Business working hours state from Firestore
+  const [workingHours, setWorkingHours] = useState<any>(null);
+  // Booked time slots for the selected barber and date
+  const [bookedTimes, setBookedTimes] = useState<string[]>([]);
+  const [loadingSchedule, setLoadingSchedule] = useState(true);
+
   const selectedDateObject = dates.find(d => d.id === selectedDateId);
+
+  // 1. Fetch working hours from Firestore
+  useEffect(() => {
+    const fetchHours = async () => {
+      try {
+        const docRef = doc(db, 'business_settings', 'working_hours');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setWorkingHours(docSnap.data()?.days || null);
+        }
+      } catch (err) {
+        console.error("Error al obtener horarios de atención:", err);
+      } finally {
+        setLoadingSchedule(false);
+      }
+    };
+    fetchHours();
+  }, []);
+
+  // 2. Fetch booked appointments for selected barber & date in real-time
+  useEffect(() => {
+    if (!selectedDateObject || !barberId) return;
+
+    const q = query(
+      collection(db, 'appointments'),
+      where('barberId', '==', barberId),
+      where('date', '==', selectedDateObject.fullString)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const occupied: string[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        // Only consider active (non-cancelled) appointments
+        if (data.status !== 'cancelled' && data.time) {
+          occupied.push(data.time);
+        }
+      });
+      setBookedTimes(occupied);
+    }, (err) => {
+      console.error("Error al escuchar citas reservadas:", err);
+    });
+
+    return unsubscribe;
+  }, [selectedDateId, barberId, selectedDateObject?.fullString]);
+
+  // Determine if selected day is open and calculate available time slots
+  const getDayInfo = () => {
+    if (!selectedDateObject) return { isOpen: true, slots: ALL_TIME_SLOTS };
+
+    const dayOfWeekIndex = selectedDateObject.rawDate.getDay(); // 0 is Sunday, 1 is Monday, etc.
+    const dayKey = DAY_KEYS[dayOfWeekIndex];
+
+    if (workingHours && workingHours[dayKey]) {
+      const config = workingHours[dayKey];
+      if (!config.isOpen) {
+        return { isOpen: false, slots: [] };
+      }
+
+      const openIdx = ALL_TIME_SLOTS.indexOf(config.openTime);
+      const closeIdx = ALL_TIME_SLOTS.indexOf(config.closeTime);
+
+      if (openIdx !== -1 && closeIdx !== -1 && openIdx < closeIdx) {
+        return { isOpen: true, slots: ALL_TIME_SLOTS.slice(openIdx, closeIdx + 1) };
+      }
+    }
+
+    // Default fallback if working hours not yet created
+    return { isOpen: true, slots: ALL_TIME_SLOTS.slice(6, 31) }; // 09:00 AM to 09:00 PM
+  };
+
+  const { isOpen: isSelectedDayOpen, slots: availableSlots } = getDayInfo();
 
   const handleNext = () => {
     if (!selectedTime || !selectedDateObject) return;
@@ -166,30 +251,77 @@ export default function StepDateScreen() {
           HORARIOS DISPONIBLES
         </Text>
 
-        <View style={styles.grid}>
-          {timeSlots.map((time) => {
-            const isSelected = selectedTime === time;
-            return (
-              <TouchableOpacity
-                key={time}
-                style={[
-                  styles.gridItem,
-                  {
-                    backgroundColor: isSelected ? theme.colors.primary : theme.colors.surface,
-                    borderColor: isSelected ? theme.colors.primary : 'rgba(150, 150, 150, 0.1)',
-                    borderWidth: 1
-                  }
-                ]}
-                onPress={() => setSelectedTime(time)}
-                activeOpacity={0.8}
-              >
-                <Text style={{ color: isSelected ? '#121212' : theme.colors.secondary, fontWeight: isSelected ? 'bold' : 'normal' }} variant="bodyMedium">
-                  {time}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {loadingSchedule ? (
+          <ActivityIndicator style={{ marginVertical: 30 }} color={theme.colors.primary} />
+        ) : !isSelectedDayOpen ? (
+          <View style={[styles.closedBanner, { backgroundColor: 'rgba(244, 67, 54, 0.12)', borderColor: theme.colors.error }]}>
+            <IconButton icon="calendar-remove" size={32} iconColor={theme.colors.error} style={{ margin: 0 }} />
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text variant="titleMedium" style={{ color: theme.colors.error, fontWeight: 'bold' }}>
+                La barbería está cerrada este día
+              </Text>
+              <Text variant="bodySmall" style={{ opacity: 0.7, marginTop: 2 }}>
+                Elige otro día de la semana para consultar los horarios disponibles.
+              </Text>
+            </View>
+          </View>
+        ) : availableSlots.length === 0 ? (
+          <Text variant="bodyMedium" style={{ textAlign: 'center', opacity: 0.5, marginVertical: 30 }}>
+            No hay horarios disponibles para la fecha seleccionada.
+          </Text>
+        ) : (
+          <View style={styles.grid}>
+            {availableSlots.map((time) => {
+              const isSelected = selectedTime === time;
+              const isOccupied = bookedTimes.includes(time);
+
+              return (
+                <TouchableOpacity
+                  key={time}
+                  disabled={isOccupied}
+                  style={[
+                    styles.gridItem,
+                    {
+                      backgroundColor: isOccupied
+                        ? 'rgba(150, 150, 150, 0.08)'
+                        : isSelected
+                        ? theme.colors.primary
+                        : theme.colors.surface,
+                      borderColor: isOccupied
+                        ? 'rgba(244, 67, 54, 0.3)'
+                        : isSelected
+                        ? theme.colors.primary
+                        : 'rgba(150, 150, 150, 0.1)',
+                      borderWidth: 1,
+                      opacity: isOccupied ? 0.6 : 1
+                    }
+                  ]}
+                  onPress={() => setSelectedTime(time)}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={{
+                      color: isOccupied
+                        ? theme.colors.error
+                        : isSelected
+                        ? '#121212'
+                        : theme.colors.secondary,
+                      fontWeight: isSelected || isOccupied ? 'bold' : 'normal',
+                      fontSize: 13
+                    }}
+                  >
+                    {time}
+                  </Text>
+                  {isOccupied && (
+                    <Text style={{ fontSize: 9, color: theme.colors.error, fontWeight: 'bold', marginTop: 2 }}>
+                      OCUPADO
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
       </ScrollView>
 
       {/* Persistent Footer */}
@@ -282,12 +414,20 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     marginVertical: 16,
+  },
+  closedBanner: {
+    flexDirection: 'row',
     alignItems: 'center',
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginVertical: 20,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
+    justifyContent: 'space-between',
     marginBottom: 20,
   },
   gridItem: {
