@@ -2,9 +2,10 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useUserRole } from '@/context/user-role';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect, useRef } from 'react';
-import { Dimensions, FlatList, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Dimensions, FlatList, ScrollView, StyleSheet, TouchableOpacity, View, Linking, Platform } from 'react-native';
 import { Avatar, Badge, Button, Card, Dialog, IconButton, Modal, Portal, Text, useTheme, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { db } from '@/config/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 
@@ -60,6 +61,28 @@ export default function HomeScreen() {
         });
       }
     }
+  };
+
+  const openGoogleMapsNavigation = () => {
+    const lat = -12.0963;
+    const lng = -77.0353;
+    const label = encodeURIComponent('BarberApp Sede San Isidro');
+    const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    const geoUrl = Platform.OS === 'ios'
+      ? `maps:0,0?q=${label}@${lat},${lng}`
+      : `geo:${lat},${lng}?q=${lat},${lng}(${label})`;
+
+    Linking.canOpenURL(geoUrl)
+      .then((supported) => {
+        if (supported) {
+          Linking.openURL(geoUrl);
+        } else {
+          Linking.openURL(googleMapsUrl);
+        }
+      })
+      .catch(() => {
+        Linking.openURL(googleMapsUrl);
+      });
   };
 
   useEffect(() => {
@@ -289,6 +312,65 @@ export default function HomeScreen() {
             >
               Escribir al Soporte
             </Button>
+          </Card.Content>
+        </Card>
+
+        {/* Location & Google Maps Section */}
+        <Card
+          style={[styles.locationCard, { backgroundColor: theme.colors.surface, borderColor: 'rgba(212, 175, 55, 0.3)', borderWidth: 1 }]}
+          elevation={2}
+        >
+          <Card.Content style={{ padding: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <IconButton icon="map-marker" size={30} iconColor={theme.colors.primary} style={{ backgroundColor: 'rgba(212, 175, 55, 0.12)', margin: 0, marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                  Nuestra Ubicación
+                </Text>
+                <Text variant="bodySmall" style={{ opacity: 0.65, marginTop: 2 }}>
+                  Av. Javier Prado Este 1450, San Isidro, Lima
+                </Text>
+              </View>
+            </View>
+
+            {/* Interactive Map View */}
+            <TouchableOpacity
+              activeOpacity={0.88}
+              onPress={openGoogleMapsNavigation}
+              style={styles.mapTouchContainer}
+            >
+              <MapView
+                provider={PROVIDER_GOOGLE}
+                style={styles.mapView}
+                initialRegion={{
+                  latitude: -12.0963,
+                  longitude: -77.0353,
+                  latitudeDelta: 0.008,
+                  longitudeDelta: 0.008,
+                }}
+                pitchEnabled={false}
+                rotateEnabled={false}
+                scrollEnabled={false}
+                zoomEnabled={false}
+                onPress={openGoogleMapsNavigation}
+              >
+                <Marker
+                  coordinate={{ latitude: -12.0963, longitude: -77.0353 }}
+                  title="BarberApp San Isidro"
+                  description="Toca para abrir ruta en Google Maps"
+                  pinColor={theme.colors.primary}
+                  onPress={openGoogleMapsNavigation}
+                />
+              </MapView>
+
+              {/* Map Overlay Badge */}
+              <View style={[styles.mapOverlayBadge, { backgroundColor: 'rgba(18, 18, 18, 0.8)' }]}>
+                <IconSymbol size={14} name="paperplane.fill" color={theme.colors.primary} style={{ marginRight: 6 }} />
+                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: 'bold' }}>
+                  Toca el mapa para abrir Google Maps
+                </Text>
+              </View>
+            </TouchableOpacity>
           </Card.Content>
         </Card>
       </ScrollView>
@@ -776,5 +858,33 @@ const styles = StyleSheet.create({
     marginTop: 14,
     borderRadius: 8,
     paddingVertical: 2,
+  },
+  locationCard: {
+    marginTop: 12,
+    marginBottom: 32,
+    borderRadius: 14,
+  },
+  mapTouchContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  mapView: {
+    width: '100%',
+    height: '100%',
+  },
+  mapOverlayBadge: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
   },
 });
