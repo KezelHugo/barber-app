@@ -256,7 +256,41 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* Support Chat Banner Section */}
+        <Card
+          style={[styles.supportCard, { backgroundColor: theme.colors.surface, borderColor: 'rgba(212, 175, 55, 0.3)', borderWidth: 1 }]}
+          elevation={2}
+        >
+          <Card.Content style={styles.supportCardContent}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <IconButton icon="headset" size={32} iconColor={theme.colors.primary} style={{ backgroundColor: 'rgba(212, 175, 55, 0.12)', margin: 0 }} />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                  ¿Tienes alguna duda? Pregúntanos
+                </Text>
+                <Text variant="bodySmall" style={{ opacity: 0.6, marginTop: 2 }}>
+                  Conversa directamente con nuestro equipo de atención en tiempo real.
+                </Text>
+              </View>
+            </View>
 
+            <Button
+              mode="contained"
+              icon="message-text"
+              onPress={() => {
+                if (isGuest) {
+                  setDialogVisible(true);
+                } else {
+                  router.push('/(customer)/chat');
+                }
+              }}
+              style={[styles.supportBtn, { backgroundColor: theme.colors.primary }]}
+              labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+            >
+              Escribir al Soporte
+            </Button>
+          </Card.Content>
+        </Card>
       </ScrollView>
 
       {/* Guest Block Dialog */}
@@ -729,5 +763,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 13,
     letterSpacing: 1.5,
+  },
+  supportCard: {
+    marginTop: 24,
+    marginBottom: 16,
+    borderRadius: 14,
+  },
+  supportCardContent: {
+    padding: 16,
+  },
+  supportBtn: {
+    marginTop: 14,
+    borderRadius: 8,
+    paddingVertical: 2,
   },
 });
