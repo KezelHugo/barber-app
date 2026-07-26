@@ -52,6 +52,14 @@ export default function CustomerLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={26} name="person.fill" color={color} />,
         }}
       />
+      {/* Hidden customer chat screen */}
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: 'Soporte & Consultas',
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
