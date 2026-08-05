@@ -152,34 +152,6 @@ export default function AdminProfileScreen() {
               right={(props) => <List.Icon {...props} icon="chevron-right" />}
               onPress={() => router.push('/(admin)/working-hours')}
             />
-            <Divider style={styles.divider} />
-
-            <List.Item
-              title="Promociones & Cupones"
-              description="1 promoción activa (Promo del Mes)"
-              left={(props) => <List.Icon {...props} icon="ticket-percent-outline" color={theme.colors.primary} />}
-              right={(props) => <List.Icon {...props} icon="chevron-right" />}
-            />
-          </List.Section>
-        </Card>
-
-        <Card style={[styles.card, { backgroundColor: theme.colors.surface }]} elevation={1}>
-          <List.Section style={{ marginVertical: 0 }}>
-            <List.Subheader style={{ color: theme.colors.primary, fontWeight: 'bold' }}>REPORTES Y AUDITORÍA</List.Subheader>
-
-            <List.Item
-              title="Reporte de Ingresos Semanales"
-              description="Exportar a PDF / Excel"
-              left={(props) => <List.Icon {...props} icon="file-chart-outline" color={theme.colors.primary} />}
-            />
-            <Divider style={styles.divider} />
-
-            <List.Item
-              title="Historial de Auditoría"
-              description="Ver cambios en precios y horarios"
-              left={(props) => <List.Icon {...props} icon="shield-check-outline" color={theme.colors.primary} />}
-              right={(props) => <List.Icon {...props} icon="chevron-right" />}
-            />
           </List.Section>
         </Card>
 
@@ -213,9 +185,9 @@ export default function AdminProfileScreen() {
         <Dialog
           visible={passwordDialogVisible}
           onDismiss={() => !loadingPassword && setPasswordDialogVisible(false)}
-          style={{ backgroundColor: theme.colors.surface, borderRadius: 4 }}
+          style={{ backgroundColor: theme.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(212, 175, 55, 0.35)' }}
         >
-          <Dialog.Title style={{ color: theme.colors.primary }}>Cambiar Contraseña</Dialog.Title>
+          <Dialog.Title style={{ color: theme.colors.primary, fontWeight: 'bold' }}>Cambiar Contraseña</Dialog.Title>
           <Dialog.Content>
             <TextInput
               label="Nueva Contraseña"

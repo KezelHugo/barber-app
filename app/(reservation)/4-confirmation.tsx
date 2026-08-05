@@ -1,11 +1,51 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView } from 'react-native';
-import { Text, Card, Button, useTheme, ProgressBar, IconButton, Divider, Portal, Dialog, ActivityIndicator } from 'react-native-paper';
+import { Text, Card, Button, useTheme, ProgressBar, IconButton, Divider, Portal, Dialog, ActivityIndicator, Avatar } from 'react-native-paper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { auth, db } from '@/config/firebase';
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { getDirectImageUrl } from '@/utils/image-url';
+
+function calculateEndTime(startSlotStr?: string, durationMinutes: number = 0): string {
+  if (!startSlotStr || typeof startSlotStr !== 'string') return '';
+  const parts = startSlotStr.split(' ');
+  if (parts.length < 2) return startSlotStr;
+
+  const [timePart, period] = parts;
+  const [hoursStr, minutesStr] = timePart.split(':');
+  let hours = parseInt(hoursStr, 10);
+  const minutes = parseInt(minutesStr, 10);
+
+  if (isNaN(hours) || isNaN(minutes)) return startSlotStr;
+
+  if (period === 'PM' && hours < 12) {
+    hours += 12;
+  } else if (period === 'AM' && hours === 12) {
+    hours = 0;
+  }
+
+  const startDate = new Date();
+  startDate.setHours(hours, minutes, 0, 0);
+
+  const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
+
+  let endHours = endDate.getHours();
+  const endMinutes = endDate.getMinutes();
+  const endPeriod = endHours >= 12 ? 'PM' : 'AM';
+
+  if (endHours > 12) {
+    endHours -= 12;
+  } else if (endHours === 0) {
+    endHours = 12;
+  }
+
+  const formattedMinutes = endMinutes < 10 ? `0${endMinutes}` : `${endMinutes}`;
+  const formattedHours = endHours < 10 ? `0${endHours}` : `${endHours}`;
+
+  return `${formattedHours}:${formattedMinutes} ${endPeriod}`;
+}
 
 export default function StepConfirmationScreen() {
   const theme = useTheme();
@@ -19,9 +59,31 @@ export default function StepConfirmationScreen() {
 
   // Real database services state
   const [selectedServices, setSelectedServices] = useState<any[]>([]);
+  const [barberImageUrl, setBarberImageUrl] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [loadingSave, setLoadingSave] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Total duration in minutes
+  const totalDuration = selectedServices.reduce((sum, s) => sum + (Number(s.duration) || 0), 0);
+  const endTimeStr = calculateEndTime(time as string, totalDuration);
+
+  // Fetch barber image
+  useEffect(() => {
+    if (!barberId) return;
+    const fetchBarber = async () => {
+      try {
+        const bDoc = await getDoc(doc(db, 'users', barberId as string));
+        if (bDoc.exists()) {
+          const bData = bDoc.data();
+          setBarberImageUrl(bData.imageUrl || '');
+        }
+      } catch (err) {
+        console.error("Error al obtener imagen del barbero:", err);
+      }
+    };
+    fetchBarber();
+  }, [barberId]);
 
   useEffect(() => {
     const fetchServices = async () => {
@@ -112,6 +174,8 @@ export default function StepConfirmationScreen() {
         serviceIds: serviceIds ? (serviceIds as string).split(',') : [],
         servicesSummary,
         totalPrice: Number(totalPrice) || 0,
+        totalDuration: Number(totalDuration) || 30,
+        endTime: endTimeStr || '',
         date: date || '',
         time: time || '',
         status: 'pending',
@@ -170,11 +234,16 @@ export default function StepConfirmationScreen() {
                 <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
                   {date}
                 </Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, flexWrap: 'wrap' }}>
                   <IconSymbol size={16} name="clock" color={theme.colors.primary} style={{ marginRight: 6 }} />
                   <Text variant="bodyMedium" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
-                    {time}
+                    {time} {endTimeStr ? `- ${endTimeStr}` : ''}
                   </Text>
+                  {endTimeStr ? (
+                    <Text variant="bodySmall" style={{ opacity: 0.6, fontSize: 12, marginLeft: 6 }}>
+                      (Finaliza aprox. {endTimeStr})
+                    </Text>
+                  ) : null}
                 </View>
               </View>
             </View>
@@ -188,7 +257,20 @@ export default function StepConfirmationScreen() {
               BARBERO SELECCIONADO
             </Text>
             <View style={styles.barberRow}>
-              <IconButton icon="account" size={32} iconColor={theme.colors.secondary} style={{ backgroundColor: theme.colors.surfaceVariant, margin: 0 }} />
+              {barberImageUrl ? (
+                <Avatar.Image
+                  size={50}
+                  source={{ uri: getDirectImageUrl(barberImageUrl) }}
+                  style={{ backgroundColor: theme.colors.surfaceVariant }}
+                />
+              ) : (
+                <Avatar.Text
+                  size={50}
+                  label={barberName ? (barberName as string).split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase() : 'BA'}
+                  style={{ backgroundColor: theme.colors.primary }}
+                  labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+                />
+              )}
               <View style={{ marginLeft: 12 }}>
                 <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
                   {barberName}
@@ -240,6 +322,17 @@ export default function StepConfirmationScreen() {
 
             <Divider style={styles.divider} />
 
+            {/* Total Duration Row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <IconSymbol size={16} name="clock" color={theme.colors.primary} style={{ marginRight: 6 }} />
+                <Text variant="bodyMedium" style={{ opacity: 0.7 }}>Tiempo estimado total:</Text>
+              </View>
+              <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                {totalDuration} min
+              </Text>
+            </View>
+
             <View style={styles.totalRow}>
               <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>Total a pagar:</Text>
               <Text variant="titleLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
@@ -274,25 +367,60 @@ export default function StepConfirmationScreen() {
 
       {/* Success Dialog */}
       <Portal>
-        <Dialog visible={confirmDialogVisible} dismissable={false} style={{ backgroundColor: theme.colors.surface }}>
+        <Dialog
+          visible={confirmDialogVisible}
+          dismissable={false}
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(212, 175, 55, 0.35)',
+            paddingVertical: 4,
+          }}
+        >
           <Dialog.Content style={styles.successDialogContent}>
-            <IconButton icon="check-circle" size={80} iconColor="#4CAF50" style={{ margin: 0, marginBottom: 16 }} />
+            <View style={styles.successIconBadge}>
+              <IconButton icon="check-circle" size={48} iconColor={theme.colors.primary} style={{ margin: 0 }} />
+            </View>
+
             <Text variant="headlineSmall" style={[styles.successTitle, { color: theme.colors.secondary }]}>
               ¡Cita Reservada!
             </Text>
-            <Text variant="bodyMedium" style={styles.successDesc}>
-              Tu cita con <Text style={{ fontWeight: 'bold' }}>{barberName}</Text> ha sido agendada con éxito para el <Text style={{ fontWeight: 'bold' }}>{date}</Text> a las <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{time}</Text>.
-            </Text>
+
+            <View style={[styles.successSummaryBox, { backgroundColor: theme.colors.background }]}>
+              <View style={styles.summaryItemRow}>
+                <IconSymbol size={16} name="person.fill" color={theme.colors.primary} style={{ marginRight: 8 }} />
+                <Text variant="bodyMedium" style={{ color: theme.colors.secondary, flex: 1 }}>
+                  Barbero: <Text style={{ fontWeight: 'bold' }}>{barberName}</Text>
+                </Text>
+              </View>
+
+              <View style={styles.summaryItemRow}>
+                <IconSymbol size={16} name="calendar" color={theme.colors.primary} style={{ marginRight: 8 }} />
+                <Text variant="bodyMedium" style={{ color: theme.colors.secondary, flex: 1 }}>
+                  Fecha: <Text style={{ fontWeight: 'bold' }}>{date}</Text>
+                </Text>
+              </View>
+
+              <View style={styles.summaryItemRow}>
+                <IconSymbol size={16} name="clock" color={theme.colors.primary} style={{ marginRight: 8 }} />
+                <Text variant="bodyMedium" style={{ color: theme.colors.secondary, flex: 1 }}>
+                  Horario: <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{time} {endTimeStr ? `- ${endTimeStr}` : ''}</Text>
+                </Text>
+              </View>
+            </View>
+
             <Text variant="bodySmall" style={styles.successNote}>
-              * Puedes pagar por adelantado con Yape/Plin o al finalizar tu atención.
+              * Puedes pagar por adelantado con Yape/Plin o al finalizar tu atención en la sede.
             </Text>
           </Dialog.Content>
-          <Dialog.Actions style={{ justifyContent: 'center', paddingBottom: 16 }}>
+
+          <Dialog.Actions style={{ justifyContent: 'center', paddingHorizontal: 20, paddingBottom: 16 }}>
             <Button
               mode="contained"
               onPress={handleFinish}
-              style={{ backgroundColor: theme.colors.primary, width: '80%' }}
-              labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+              style={{ backgroundColor: theme.colors.primary, width: '100%', borderRadius: 8, paddingVertical: 2 }}
+              labelStyle={{ color: '#121212', fontWeight: 'bold', fontSize: 15 }}
             >
               Ver Mis Citas
             </Button>
@@ -403,21 +531,38 @@ const styles = StyleSheet.create({
   },
   successDialogContent: {
     alignItems: 'center',
-    paddingTop: 16,
+    paddingTop: 8,
+  },
+  successIconBadge: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
   },
   successTitle: {
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 4,
   },
-  successDesc: {
-    textAlign: 'center',
-    lineHeight: 20,
-    opacity: 0.8,
+  successSummaryBox: {
+    width: '100%',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.15)',
+    marginVertical: 10,
+    gap: 8,
+  },
+  summaryItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   successNote: {
     textAlign: 'center',
     opacity: 0.5,
-    fontSize: 12,
-    marginTop: 12,
+    fontSize: 11,
+    marginTop: 4,
   },
 });

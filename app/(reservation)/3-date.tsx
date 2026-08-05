@@ -5,7 +5,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { db } from '@/config/firebase';
-import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 
 interface DateItem {
   id: string;
@@ -25,6 +25,79 @@ const ALL_TIME_SLOTS = [
 ];
 
 const DAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+// Convert time slot string (e.g. "09:00 AM" or "01:30 PM") into minutes from midnight (00:00)
+function parseSlotToMinutes(slotStr: string): number {
+  if (!slotStr || typeof slotStr !== 'string') return 0;
+  const parts = slotStr.split(' ');
+  if (parts.length < 2) return 0;
+  const [timePart, period] = parts;
+  const [hoursStr, minutesStr] = timePart.split(':');
+  let hours = parseInt(hoursStr, 10);
+  const minutes = parseInt(minutesStr, 10);
+
+  if (isNaN(hours) || isNaN(minutes)) return 0;
+
+  if (period === 'PM' && hours < 12) {
+    hours += 12;
+  } else if (period === 'AM' && hours === 12) {
+    hours = 0;
+  }
+  return hours * 60 + minutes;
+}
+
+// Convert time slot string (e.g. "09:00 AM" or "01:30 PM") into a Date object for a target date
+function parseSlotToDate(slotStr: string, baseDate: Date): Date {
+  const [timePart, period] = slotStr.split(' ');
+  const [hoursStr, minutesStr] = timePart.split(':');
+  let hours = parseInt(hoursStr, 10);
+  const minutes = parseInt(minutesStr, 10);
+
+  if (period === 'PM' && hours < 12) {
+    hours += 12;
+  } else if (period === 'AM' && hours === 12) {
+    hours = 0;
+  }
+
+  const slotDate = new Date(baseDate);
+  slotDate.setHours(hours, minutes, 0, 0);
+  return slotDate;
+}
+
+// Check if a time slot has passed or is less than 5 minutes away on TODAY
+function isSlotPassedOrTooSoon(slotStr: string, targetDate: Date): boolean {
+  const now = new Date();
+  const isToday =
+    targetDate.getFullYear() === now.getFullYear() &&
+    targetDate.getMonth() === now.getMonth() &&
+    targetDate.getDate() === now.getDate();
+
+  if (!isToday) return false;
+
+  const slotDate = parseSlotToDate(slotStr, targetDate);
+  // Disable slot if it starts in 5 minutes or less
+  const leadTimeMs = 5 * 60 * 1000;
+  return slotDate.getTime() <= now.getTime() + leadTimeMs;
+}
+
+// Check if starting at slotStr with reqDuration overlaps with booked slots or exceeds available day hours
+function isSlotInsufficientForDuration(
+  slotStr: string,
+  reqDuration: number,
+  occupiedSlots: string[],
+  availableDaySlots: string[]
+): boolean {
+  const startMins = parseSlotToMinutes(slotStr);
+  const endMins = startMins + reqDuration;
+
+  for (let m = startMins; m < endMins; m += 30) {
+    const blockSlot = ALL_TIME_SLOTS.find(s => parseSlotToMinutes(s) === m);
+    if (!blockSlot || !availableDaySlots.includes(blockSlot) || occupiedSlots.includes(blockSlot)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export default function StepDateScreen() {
   const theme = useTheme();
@@ -74,17 +147,74 @@ export default function StepDateScreen() {
   // Booked time slots for the selected barber and date
   const [bookedTimes, setBookedTimes] = useState<string[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(true);
+  const [requiredDuration, setRequiredDuration] = useState<number>(30);
 
   const selectedDateObject = dates.find(d => d.id === selectedDateId);
 
-  // 1. Fetch working hours from Firestore
+  // 1. Fetch total required duration for current customer's selected services
+  useEffect(() => {
+    if (!serviceIds) return;
+    const fetchServicesDuration = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'services'));
+        const selectedIds = (serviceIds as string).split(',');
+        let sumDuration = 0;
+        querySnapshot.forEach((docSnap) => {
+          if (selectedIds.includes(docSnap.id)) {
+            sumDuration += Number(docSnap.data().duration) || 30;
+          }
+        });
+        if (sumDuration > 0) {
+          setRequiredDuration(sumDuration);
+        }
+      } catch (err) {
+        console.error("Error al obtener duración de servicios seleccionados:", err);
+      }
+    };
+    fetchServicesDuration();
+  }, [serviceIds]);
+
+  // 2. Fetch working hours from Firestore and auto-select Tomorrow if Today's schedule has ended
   useEffect(() => {
     const fetchHours = async () => {
       try {
         const docRef = doc(db, 'business_settings', 'working_hours');
         const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setWorkingHours(docSnap.data()?.days || null);
+        const hoursData = docSnap.exists() ? (docSnap.data()?.days || null) : null;
+        setWorkingHours(hoursData);
+
+        // Check if today (dates[0]) has any remaining valid time slot
+        if (dates.length > 0) {
+          const todayObj = dates[0];
+          const dayOfWeekIndex = todayObj.rawDate.getDay();
+          const dayKey = DAY_KEYS[dayOfWeekIndex];
+
+          let todayHasValidSlot = false;
+          if (hoursData && hoursData[dayKey]) {
+            const config = hoursData[dayKey];
+            if (config.isOpen) {
+              const openIdx = ALL_TIME_SLOTS.indexOf(config.openTime);
+              const closeIdx = ALL_TIME_SLOTS.indexOf(config.closeTime);
+
+              if (openIdx !== -1 && closeIdx !== -1 && openIdx < closeIdx) {
+                const todaySlots = ALL_TIME_SLOTS.slice(openIdx, closeIdx + 1);
+                todayHasValidSlot = todaySlots.some(
+                  (slot) => !isSlotPassedOrTooSoon(slot, todayObj.rawDate)
+                );
+              }
+            }
+          } else {
+            // Fallback 09:00 AM to 09:00 PM
+            const fallbackSlots = ALL_TIME_SLOTS.slice(6, 31);
+            todayHasValidSlot = fallbackSlots.some(
+              (slot) => !isSlotPassedOrTooSoon(slot, todayObj.rawDate)
+            );
+          }
+
+          // If today is closed or all slots for today have passed (or < 5 min remaining), auto-select Tomorrow (id '1')
+          if (!todayHasValidSlot) {
+            setSelectedDateId('1');
+          }
         }
       } catch (err) {
         console.error("Error al obtener horarios de atención:", err);
@@ -95,7 +225,7 @@ export default function StepDateScreen() {
     fetchHours();
   }, []);
 
-  // 2. Fetch booked appointments for selected barber & date in real-time
+  // 3. Fetch booked appointments for selected barber & date in real-time, calculating interval overlaps
   useEffect(() => {
     if (!selectedDateObject || !barberId) return;
 
@@ -107,11 +237,22 @@ export default function StepDateScreen() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const occupied: string[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
         // Only consider active (non-cancelled) appointments
         if (data.status !== 'cancelled' && data.time) {
-          occupied.push(data.time);
+          const apptStartMins = parseSlotToMinutes(data.time);
+          const apptDuration = Number(data.totalDuration) || 30;
+          const apptEndMins = apptStartMins + apptDuration;
+
+          ALL_TIME_SLOTS.forEach((slot) => {
+            const slotMins = parseSlotToMinutes(slot);
+            if (slotMins >= apptStartMins && slotMins < apptEndMins) {
+              if (!occupied.includes(slot)) {
+                occupied.push(slot);
+              }
+            }
+          });
         }
       });
       setBookedTimes(occupied);
@@ -236,13 +377,21 @@ export default function StepDateScreen() {
           }}
         />
 
-        {/* Selected date visualizer */}
+        {/* Selected date & duration visualizer */}
         <View style={[styles.selectedDateBanner, { backgroundColor: theme.colors.surfaceVariant }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <IconSymbol size={18} name="calendar" color={theme.colors.primary} style={{ marginRight: 6 }} />
-            <Text variant="bodyMedium" style={{ fontWeight: '500', color: theme.colors.secondary }}>
-              Día elegido: <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{selectedDateObject?.fullString}</Text>
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <IconSymbol size={18} name="calendar" color={theme.colors.primary} style={{ marginRight: 6 }} />
+              <Text variant="bodyMedium" style={{ fontWeight: '500', color: theme.colors.secondary }}>
+                Día elegido: <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{selectedDateObject?.fullString}</Text>
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8 }}>
+              <IconSymbol size={15} name="clock" color={theme.colors.primary} style={{ marginRight: 4 }} />
+              <Text variant="bodySmall" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                {requiredDuration} min
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -269,31 +418,48 @@ export default function StepDateScreen() {
           <Text variant="bodyMedium" style={{ textAlign: 'center', opacity: 0.5, marginVertical: 30 }}>
             No hay horarios disponibles para la fecha seleccionada.
           </Text>
+        ) : availableSlots.every(time => isSlotPassedOrTooSoon(time, selectedDateObject?.rawDate || new Date())) ? (
+          <View style={[styles.closedBanner, { backgroundColor: 'rgba(212, 175, 55, 0.12)', borderColor: theme.colors.primary }]}>
+            <IconButton icon="clock-alert-outline" size={32} iconColor={theme.colors.primary} style={{ margin: 0 }} />
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text variant="titleMedium" style={{ color: theme.colors.secondary, fontWeight: 'bold' }}>
+                Horarios finalizados por hoy
+              </Text>
+              <Text variant="bodySmall" style={{ opacity: 0.7, marginTop: 2 }}>
+                Los turnos de atención para el día de hoy ya han concluido. Te invitamos a seleccionar la fecha de mañana u otro día.
+              </Text>
+            </View>
+          </View>
         ) : (
           <View style={styles.grid}>
             {availableSlots.map((time) => {
               const isSelected = selectedTime === time;
               const isOccupied = bookedTimes.includes(time);
+              const isPassed = isSlotPassedOrTooSoon(time, selectedDateObject?.rawDate || new Date());
+              const isInsufficient = isSlotInsufficientForDuration(time, requiredDuration, bookedTimes, availableSlots);
+              const isDisabled = isOccupied || isPassed || isInsufficient;
 
               return (
                 <TouchableOpacity
                   key={time}
-                  disabled={isOccupied}
+                  disabled={isDisabled}
                   style={[
                     styles.gridItem,
                     {
-                      backgroundColor: isOccupied
+                      backgroundColor: isDisabled
                         ? 'rgba(150, 150, 150, 0.08)'
                         : isSelected
                         ? theme.colors.primary
                         : theme.colors.surface,
                       borderColor: isOccupied
                         ? 'rgba(244, 67, 54, 0.3)'
+                        : (isPassed || isInsufficient)
+                        ? 'rgba(150, 150, 150, 0.15)'
                         : isSelected
                         ? theme.colors.primary
                         : 'rgba(150, 150, 150, 0.1)',
                       borderWidth: 1,
-                      opacity: isOccupied ? 0.6 : 1
+                      opacity: isDisabled ? 0.45 : 1
                     }
                   ]}
                   onPress={() => setSelectedTime(time)}
@@ -303,11 +469,14 @@ export default function StepDateScreen() {
                     style={{
                       color: isOccupied
                         ? theme.colors.error
+                        : (isPassed || isInsufficient)
+                        ? theme.colors.outline
                         : isSelected
                         ? '#121212'
                         : theme.colors.secondary,
                       fontWeight: isSelected || isOccupied ? 'bold' : 'normal',
-                      fontSize: 13
+                      fontSize: 13,
+                      textDecorationLine: (isPassed || isInsufficient) ? 'line-through' : 'none'
                     }}
                   >
                     {time}
@@ -315,6 +484,16 @@ export default function StepDateScreen() {
                   {isOccupied && (
                     <Text style={{ fontSize: 9, color: theme.colors.error, fontWeight: 'bold', marginTop: 2 }}>
                       OCUPADO
+                    </Text>
+                  )}
+                  {isPassed && !isOccupied && (
+                    <Text style={{ fontSize: 9, color: theme.colors.outline, fontWeight: 'bold', marginTop: 2 }}>
+                      PASADO
+                    </Text>
+                  )}
+                  {isInsufficient && !isOccupied && !isPassed && (
+                    <Text style={{ fontSize: 8, color: theme.colors.outline, fontWeight: 'bold', marginTop: 2 }}>
+                      SIN TIEMPO
                     </Text>
                   )}
                 </TouchableOpacity>

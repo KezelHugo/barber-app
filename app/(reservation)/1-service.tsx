@@ -4,6 +4,8 @@ import { Text, Card, Button, Checkbox, useTheme, ProgressBar, IconButton, Divide
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import { getDirectImageUrl } from '@/utils/image-url';
 import { db } from '@/config/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 
@@ -15,6 +17,7 @@ interface Service {
   duration: number; // en minutos
   category: 'promocion' | 'cortes' | 'barba' | 'faciales';
   description: string;
+  imageUrl?: string;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -59,6 +62,7 @@ export default function StepServiceScreen() {
           duration: Number(data.duration) || 0,
           category: data.category || 'cortes',
           description: data.description || '',
+          imageUrl: data.imageUrl || '',
         });
       });
       setServices(servicesList);
@@ -228,6 +232,17 @@ export default function StepServiceScreen() {
                             onPress={() => handleToggleService(service.id)}
                           />
                         </View>
+
+                        {service.imageUrl && service.imageUrl.trim() !== '' ? (
+                          <View style={styles.serviceImageContainer}>
+                            <Image
+                              source={{ uri: getDirectImageUrl(service.imageUrl) }}
+                              style={styles.serviceImage}
+                              contentFit="cover"
+                              transition={200}
+                            />
+                          </View>
+                        ) : null}
                         
                         <Divider style={{ marginVertical: 8, opacity: 0.2 }} />
                         
@@ -411,5 +426,19 @@ const styles = StyleSheet.create({
     padding: 40,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  serviceImageContainer: {
+    marginTop: 10,
+    marginBottom: 4,
+    borderRadius: 10,
+    overflow: 'hidden',
+    height: 140,
+    width: '100%',
+    backgroundColor: 'rgba(150, 150, 150, 0.08)',
+  },
+  serviceImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
   },
 });

@@ -5,6 +5,9 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 're
 import { Button, Card, Divider, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+// Control flag to show/hide quick role bypass panel (true for Demo APK, false for Official APK)
+const SHOW_DEV_BYPASS = true;
+
 export default function LoginScreen() {
   const theme = useTheme();
   const router = useRouter();
@@ -147,6 +150,7 @@ export default function LoginScreen() {
           </View>
 
           {/* Developer Bypass Panel */}
+          {SHOW_DEV_BYPASS && (
             <View style={styles.devPanel}>
               <Divider style={styles.divider} />
               <Text style={styles.devTitle} variant="labelMedium">
@@ -182,6 +186,7 @@ export default function LoginScreen() {
                 </Button>
               </View>
             </View>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

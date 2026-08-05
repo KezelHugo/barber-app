@@ -5,6 +5,7 @@ import { FlatList, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Badge, Button, Card, Dialog, IconButton, Portal, SegmentedButtons, Snackbar, Text, useTheme } from 'react-native-paper';
 import { useUserRole } from '@/context/user-role';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 
 interface Appointment {
   id: string;
@@ -17,6 +18,7 @@ interface Appointment {
   status: 'pending' | 'paid' | 'completed' | 'cancelled';
   cancelable: boolean; // >24h
   rating?: number;
+  createdAt?: string;
 }
 
 export default function MyDatesScreen() {
@@ -63,7 +65,8 @@ export default function MyDatesScreen() {
           price: `S/. ${data.totalPrice || 0}`,
           status: data.status || 'pending',
           cancelable: data.status === 'pending' || data.status === 'paid',
-          rating: data.rating || 0
+          rating: data.rating || 0,
+          createdAt: data.createdAt || ''
         });
       });
       setAppointments(list);
@@ -76,8 +79,24 @@ export default function MyDatesScreen() {
     return unsubscribe;
   }, [isGuest]);
 
-  const upcomingAppointments = appointments.filter(a => a.status === 'pending' || a.status === 'paid');
-  const pastAppointments = appointments.filter(a => a.status === 'completed' || a.status === 'cancelled');
+  // Sort appointments descending by creation date (most recent first)
+  const upcomingAppointments = appointments
+    .filter(a => a.status === 'pending' || a.status === 'paid')
+    .sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      return b.id.localeCompare(a.id);
+    });
+
+  const pastAppointments = appointments
+    .filter(a => a.status === 'completed' || a.status === 'cancelled')
+    .sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      return b.id.localeCompare(a.id);
+    });
 
   const handlePayClick = (appt: Appointment) => {
     setSelectedAppointment(appt);
@@ -202,70 +221,129 @@ export default function MyDatesScreen() {
               <Text variant="bodyLarge" style={{ opacity: 0.5 }}>No tienes citas programadas.</Text>
             </View>
           ) : (
-            upcomingAppointments.map((item) => (
-              <Card key={item.id} style={[styles.card, { backgroundColor: theme.colors.surface }]} elevation={2}>
-                <Card.Content>
-                  <View style={styles.cardHeader}>
-                    <Badge style={[
-                      styles.statusBadge,
-                      { backgroundColor: item.status === 'paid' ? '#4CAF50' : theme.colors.primaryContainer,
-                        color: item.status === 'paid' ? '#ffffff' : theme.colors.primary }
-                    ]}>
-                      {item.status === 'paid' ? 'PAGADO (PENDIENTE VALIDAR)' : 'PENDIENTE DE PAGO'}
-                    </Badge>
-                    <Text variant="titleSmall" style={{ opacity: 0.5 }}>#{item.id}</Text>
-                  </View>
-
-                  <Text variant="titleMedium" style={[styles.serviceTitle, { color: theme.colors.secondary }]}>
-                    {item.service}
-                  </Text>
-
-                  <View style={styles.detailRow}>
-                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Barbero: </Text>
-                    <Text variant="bodyMedium">{item.barber}</Text>
-                  </View>
-
-                  <View style={styles.detailRow}>
-                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Fecha y Hora: </Text>
-                    <Text variant="bodyMedium" style={{ color: theme.colors.primary }}>
-                      {item.date} - {item.time}
-                    </Text>
-                  </View>
-
-                  <View style={styles.priceRow}>
-                    <Text variant="titleMedium">Precio Total:</Text>
-                    <Text variant="titleMedium" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
-                      {item.price}
-                    </Text>
-                  </View>
-
-                  <View style={styles.cardActions}>
-                    {item.cancelable && (
-                      <Button
-                        mode="outlined"
-                        onPress={() => handleCancelClick(item)}
-                        style={[styles.actionBtn, { borderColor: theme.colors.error }]}
-                        textColor={theme.colors.error}
-                        compact
+            upcomingAppointments.map((item) => {
+              const isPaid = item.status === 'paid';
+              return (
+                <Card
+                  key={item.id}
+                  style={[
+                    styles.card,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: isPaid ? 'rgba(76, 175, 80, 0.3)' : 'rgba(212, 175, 55, 0.25)',
+                    }
+                  ]}
+                  elevation={2}
+                >
+                  <Card.Content style={{ padding: 14 }}>
+                    {/* Header: Status Badge & Code */}
+                    <View style={styles.cardHeader}>
+                      <Badge
+                        style={[
+                          styles.statusBadge,
+                          {
+                            backgroundColor: isPaid ? 'rgba(76, 175, 80, 0.15)' : 'rgba(212, 175, 55, 0.15)',
+                            color: isPaid ? '#4CAF50' : theme.colors.primary,
+                            borderWidth: 1,
+                            borderColor: isPaid ? 'rgba(76, 175, 80, 0.3)' : 'rgba(212, 175, 55, 0.3)',
+                          }
+                        ]}
                       >
-                        Cancelar
-                      </Button>
+                        {isPaid ? '✓ PAGO REGISTRADO' : 'PENDIENTE DE PAGO'}
+                      </Badge>
+                      <Text variant="labelSmall" style={{ opacity: 0.5 }}>#{item.id.substring(0, 8)}</Text>
+                    </View>
+
+                    {/* Service Title */}
+                    <Text variant="titleMedium" style={[styles.serviceTitle, { color: theme.colors.secondary, marginTop: 4, marginBottom: 8 }]}>
+                      {item.service}
+                    </Text>
+
+                    {/* Details Box */}
+                    <View style={[styles.detailsBox, { backgroundColor: theme.colors.background }]}>
+                      <View style={styles.detailRow}>
+                        <IconSymbol size={15} name="person.fill" color={theme.colors.primary} style={{ marginRight: 8 }} />
+                        <Text variant="bodyMedium" style={{ color: theme.colors.secondary }}>
+                          Barbero: <Text style={{ fontWeight: 'bold' }}>{item.barber}</Text>
+                        </Text>
+                      </View>
+
+                      <View style={styles.detailRow}>
+                        <IconSymbol size={15} name="calendar" color={theme.colors.primary} style={{ marginRight: 8 }} />
+                        <Text variant="bodyMedium" style={{ color: theme.colors.secondary }}>
+                          Fecha: <Text style={{ fontWeight: 'bold' }}>{item.date}</Text>
+                        </Text>
+                      </View>
+
+                      <View style={styles.detailRow}>
+                        <IconSymbol size={15} name="clock" color={theme.colors.primary} style={{ marginRight: 8 }} />
+                        <Text variant="bodyMedium" style={{ color: theme.colors.secondary }}>
+                          Horario: <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{item.time}</Text>
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Banner feedback */}
+                    {isPaid ? (
+                      <View style={[styles.paidBanner, { backgroundColor: 'rgba(76, 175, 80, 0.12)', borderColor: 'rgba(76, 175, 80, 0.3)' }]}>
+                        <IconSymbol size={18} name="checkmark.circle.fill" color="#4CAF50" style={{ marginRight: 8 }} />
+                        <View style={{ flex: 1 }}>
+                          <Text variant="labelMedium" style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+                            ¡Pago registrado con Yape/Plin!
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: theme.colors.secondary, opacity: 0.7, fontSize: 11 }}>
+                            Tu cita está lista. Preséntate en la barbería en el horario agendado.
+                          </Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={[styles.paidBanner, { backgroundColor: 'rgba(212, 175, 55, 0.08)', borderColor: 'rgba(212, 175, 55, 0.2)' }]}>
+                        <IconSymbol size={18} name="info.circle.fill" color={theme.colors.primary} style={{ marginRight: 8 }} />
+                        <Text variant="bodySmall" style={{ color: theme.colors.secondary, opacity: 0.8, flex: 1, fontSize: 11 }}>
+                          Puedes pagar por adelantado con Yape/Plin o directamente en el local.
+                        </Text>
+                      </View>
                     )}
-                    {item.status === 'pending' && (
-                      <Button
-                        mode="contained"
-                        onPress={() => handlePayClick(item)}
-                        style={[styles.actionBtn, { backgroundColor: theme.colors.primary }]}
-                        labelStyle={{ color: '#121212', fontWeight: 'bold' }}
-                        compact
-                      >
-                        Pagar con Yape/Plin
-                      </Button>
-                    )}
-                  </View>
-                </Card.Content>
-              </Card>
-            ))
+
+                    {/* Price and Actions Row */}
+                    <View style={styles.priceRow}>
+                      <Text variant="bodyMedium" style={{ opacity: 0.7 }}>Monto Total:</Text>
+                      <Text variant="titleMedium" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                        {item.price}
+                      </Text>
+                    </View>
+
+                    <View style={styles.cardActions}>
+                      {item.cancelable && (
+                        <Button
+                          mode="outlined"
+                          onPress={() => handleCancelClick(item)}
+                          style={[styles.actionBtn, { borderColor: 'rgba(244, 67, 54, 0.5)' }]}
+                          textColor={theme.colors.error}
+                          compact
+                          labelStyle={{ fontSize: 12 }}
+                        >
+                          Cancelar Cita
+                        </Button>
+                      )}
+                      {!isPaid && (
+                        <Button
+                          mode="contained"
+                          onPress={() => handlePayClick(item)}
+                          style={[styles.actionBtn, { backgroundColor: theme.colors.primary, borderRadius: 6 }]}
+                          labelStyle={{ color: '#121212', fontWeight: 'bold', fontSize: 12 }}
+                          compact
+                        >
+                          Pagar con Yape/Plin
+                        </Button>
+                      )}
+                    </View>
+                  </Card.Content>
+                </Card>
+              );
+            })
           )
         ) : (
           pastAppointments.length === 0 ? (
@@ -275,25 +353,44 @@ export default function MyDatesScreen() {
             </View>
           ) : (
             pastAppointments.map((item) => (
-              <Card key={item.id} style={[styles.card, { backgroundColor: theme.colors.surface }]} elevation={1}>
-                <Card.Content>
+              <Card
+                key={item.id}
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: 'rgba(150, 150, 150, 0.15)',
+                    opacity: 0.85
+                  }
+                ]}
+                elevation={1}
+              >
+                <Card.Content style={{ padding: 14 }}>
                   <View style={styles.cardHeader}>
-                    <Badge style={[
-                      styles.statusBadge,
-                      { backgroundColor: item.status === 'cancelled' ? 'rgba(244, 67, 54, 0.15)' : 'rgba(76, 175, 80, 0.15)',
-                        color: item.status === 'cancelled' ? '#F44336' : '#4CAF50' }
-                    ]}>
-                      {item.status === 'cancelled' ? 'CANCELADO' : 'ATENDIDO'}
+                    <Badge
+                      style={[
+                        styles.statusBadge,
+                        {
+                          backgroundColor: item.status === 'cancelled' ? 'rgba(244, 67, 54, 0.15)' : 'rgba(76, 175, 80, 0.15)',
+                          color: item.status === 'cancelled' ? '#F44336' : '#4CAF50',
+                          borderWidth: 1,
+                          borderColor: item.status === 'cancelled' ? 'rgba(244, 67, 54, 0.3)' : 'rgba(76, 175, 80, 0.3)',
+                        }
+                      ]}
+                    >
+                      {item.status === 'cancelled' ? '✕ CANCELADO' : '✓ ATENDIDO'}
                     </Badge>
-                    <Text variant="titleSmall" style={{ opacity: 0.5 }}>#{item.id}</Text>
+                    <Text variant="labelSmall" style={{ opacity: 0.5 }}>#{item.id.substring(0, 8)}</Text>
                   </View>
 
-                  <Text variant="titleMedium" style={[styles.serviceTitle, { color: theme.colors.secondary }]}>
+                  <Text variant="titleMedium" style={[styles.serviceTitle, { color: theme.colors.secondary, marginTop: 4, marginBottom: 6 }]}>
                     {item.service}
                   </Text>
                   
                   <Text variant="bodySmall" style={{ marginBottom: 12, opacity: 0.6 }}>
-                    Atendido por {item.barber} el {item.date}
+                    Atendido por {item.barber} el {item.date} a las {item.time}
                   </Text>
 
                   {item.status === 'completed' && (
@@ -324,33 +421,65 @@ export default function MyDatesScreen() {
 
       {/* Payment Modal with QR */}
       <Portal>
-        <Dialog visible={payDialogVisible} onDismiss={() => setPayDialogVisible(false)} style={{ backgroundColor: theme.colors.surface }}>
-          <Dialog.Title style={{ color: theme.colors.primary, textAlign: 'center' }}>Pago con Yape / Plin</Dialog.Title>
-          <Dialog.Content style={{ alignItems: 'center' }}>
-            <Text variant="bodyMedium" style={{ textAlign: 'center', marginBottom: 16 }}>
-              Escanea el QR desde tu billetera digital preferida. Al finalizar, presiona "Confirmar Pago".
+        <Dialog
+          visible={payDialogVisible}
+          onDismiss={() => setPayDialogVisible(false)}
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(212, 175, 55, 0.35)',
+            paddingVertical: 4,
+          }}
+        >
+          <Dialog.Title style={{ color: theme.colors.primary, fontWeight: 'bold', textAlign: 'center', fontSize: 18, paddingBottom: 0 }}>
+            Pago Digital (Yape / Plin)
+          </Dialog.Title>
+          <Dialog.Content style={{ alignItems: 'center', paddingTop: 8 }}>
+            <Text variant="bodySmall" style={{ textAlign: 'center', opacity: 0.65, marginBottom: 12 }}>
+              Escanea el código QR desde Yape o Plin y presiona "Confirmar Pago" al finalizar la transferencia.
             </Text>
-            
+
             {/* Visual QR Code Mock */}
-            <View style={[styles.qrMock, { borderColor: theme.colors.primary }]}>
-              <IconButton icon="qrcode" size={120} iconColor={theme.colors.secondary} style={{ margin: 0 }} />
-              <View style={styles.qrCenterLogo}>
-                <Text style={{ fontWeight: 'bold', fontSize: 10, color: theme.colors.primary }}>BARBER</Text>
+            <View style={[styles.qrMock, { borderColor: theme.colors.primary, backgroundColor: theme.colors.background }]}>
+              <IconButton icon="qrcode" size={130} iconColor={theme.colors.secondary} style={{ margin: 0 }} />
+              <View style={[styles.qrCenterBadge, { backgroundColor: theme.colors.primary }]}>
+                <Text style={{ fontWeight: 'bold', fontSize: 10, color: '#121212' }}>BARBER</Text>
               </View>
             </View>
 
-            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary, marginTop: 12 }}>
-              Monto a Pagar: {selectedAppointment?.price}
-            </Text>
-            <Text variant="bodySmall" style={{ opacity: 0.5, marginTop: 4 }}>
-              Titular: BarberApp SAC
-            </Text>
+            {/* Payment Details Box */}
+            <View style={[styles.payDetailsBox, { backgroundColor: theme.colors.background }]}>
+              <View style={styles.payRow}>
+                <Text variant="bodySmall" style={{ opacity: 0.6 }}>Monto a Pagar:</Text>
+                <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                  {selectedAppointment?.price}
+                </Text>
+              </View>
+              <View style={styles.payRow}>
+                <Text variant="bodySmall" style={{ opacity: 0.6 }}>Titular:</Text>
+                <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                  BarberApp S.A.C.
+                </Text>
+              </View>
+              <View style={styles.payRow}>
+                <Text variant="bodySmall" style={{ opacity: 0.6 }}>Número de Yape/Plin:</Text>
+                <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                  987 654 321
+                </Text>
+              </View>
+            </View>
           </Dialog.Content>
-          <Dialog.Actions style={{ justifyContent: 'space-between', paddingHorizontal: 16 }}>
+          <Dialog.Actions style={{ justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 14 }}>
             <Button onPress={() => setPayDialogVisible(false)} textColor={theme.colors.outline}>
               Cerrar
             </Button>
-            <Button mode="contained" onPress={confirmPayment} style={{ backgroundColor: theme.colors.primary }} labelStyle={{ color: '#121212', fontWeight: 'bold' }}>
+            <Button
+              mode="contained"
+              onPress={confirmPayment}
+              style={{ backgroundColor: theme.colors.primary, borderRadius: 8, paddingHorizontal: 12 }}
+              labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+            >
               Confirmar Pago
             </Button>
           </Dialog.Actions>
@@ -359,21 +488,38 @@ export default function MyDatesScreen() {
 
       {/* Cancel Dialog */}
       <Portal>
-        <Dialog visible={cancelDialogVisible} onDismiss={() => setCancelDialogVisible(false)} style={{ backgroundColor: theme.colors.surface }}>
-          <Dialog.Title style={{ color: theme.colors.error }}>¿Cancelar cita?</Dialog.Title>
-          <Dialog.Content>
-            <Text variant="bodyMedium">
-              ¿Estás seguro de que deseas cancelar tu cita para el <Text style={{ fontWeight: 'bold' }}>{selectedAppointment?.date}</Text>?
+        <Dialog
+          visible={cancelDialogVisible}
+          onDismiss={() => setCancelDialogVisible(false)}
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(244, 67, 54, 0.35)',
+            paddingVertical: 4,
+          }}
+        >
+          <Dialog.Title style={{ color: theme.colors.error, fontWeight: 'bold', fontSize: 18 }}>
+            ¿Cancelar Cita?
+          </Dialog.Title>
+          <Dialog.Content style={{ paddingTop: 4 }}>
+            <Text variant="bodyMedium" style={{ color: theme.colors.secondary }}>
+              ¿Estás seguro de que deseas cancelar tu cita para el <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{selectedAppointment?.date}</Text>?
             </Text>
-            <Text variant="bodySmall" style={{ color: theme.colors.error, marginTop: 8 }}>
-              * Nota: Las citas se pueden cancelar sin penalización hasta 24 horas antes del servicio.
+            <Text variant="bodySmall" style={{ color: theme.colors.error, marginTop: 10, opacity: 0.8 }}>
+              * Puedes cancelar sin costo hasta 24 horas antes del servicio.
             </Text>
           </Dialog.Content>
-          <Dialog.Actions>
+          <Dialog.Actions style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
             <Button onPress={() => setCancelDialogVisible(false)} textColor={theme.colors.outline}>
               No, mantener
             </Button>
-            <Button onPress={confirmCancel} textColor={theme.colors.error} labelStyle={{ fontWeight: 'bold' }}>
+            <Button
+              mode="contained"
+              onPress={confirmCancel}
+              style={{ backgroundColor: theme.colors.error, borderRadius: 8, marginLeft: 8 }}
+              labelStyle={{ color: '#FFFFFF', fontWeight: 'bold' }}
+            >
               Sí, cancelar
             </Button>
           </Dialog.Actions>
@@ -445,9 +591,25 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 12,
   },
+  detailsBox: {
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.12)',
+    marginBottom: 10,
+    gap: 6,
+  },
   detailRow: {
     flexDirection: 'row',
-    marginBottom: 4,
+    alignItems: 'center',
+  },
+  paidBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 6,
   },
   priceRow: {
     flexDirection: 'row',
@@ -477,23 +639,34 @@ const styles = StyleSheet.create({
     marginLeft: -8,
   },
   qrMock: {
-    width: 160,
-    height: 160,
-    borderWidth: 3,
-    borderRadius: 12,
+    width: 150,
+    height: 150,
+    borderWidth: 2,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ffffff',
     position: 'relative',
+    marginVertical: 4,
   },
-  qrCenterLogo: {
+  qrCenterBadge: {
     position: 'absolute',
-    backgroundColor: '#121212',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: '#ffffff',
+  },
+  payDetailsBox: {
+    width: '100%',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.15)',
+    marginTop: 12,
+    gap: 6,
+  },
+  payRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   guestContainer: {
     alignItems: 'center',

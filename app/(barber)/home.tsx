@@ -3,7 +3,7 @@ import { useUserRole } from '@/context/user-role';
 import { useRouter } from 'expo-router';
 import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { ActivityIndicator, Avatar, Badge, Button, Card, Snackbar, Text, useTheme } from 'react-native-paper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,7 +16,8 @@ interface BarberAppointment {
   service: string;
   date: string;
   time: string;
-  status: 'pending' | 'attended' | 'no_show';
+  status: 'pending' | 'paid' | 'attended' | 'no_show';
+  createdAt?: string;
 }
 
 export default function BarberHomeScreen() {
@@ -26,6 +27,7 @@ export default function BarberHomeScreen() {
 
   const [appointments, setAppointments] = useState<BarberAppointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isFinishedExpanded, setIsFinishedExpanded] = useState(false);
 
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMsg, setSnackbarMsg] = useState('');
@@ -49,7 +51,8 @@ export default function BarberHomeScreen() {
             ? data.customerName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()
             : 'CL';
 
-          let mappedStatus: 'pending' | 'attended' | 'no_show' = 'pending';
+          let mappedStatus: 'pending' | 'paid' | 'attended' | 'no_show' = 'pending';
+          if (data.status === 'paid') mappedStatus = 'paid';
           if (data.status === 'completed') mappedStatus = 'attended';
           if (data.status === 'cancelled') mappedStatus = 'no_show';
 
@@ -61,7 +64,8 @@ export default function BarberHomeScreen() {
             service: data.servicesSummary || 'Corte / Servicio',
             date: data.date || '',
             time: data.time || '',
-            status: mappedStatus
+            status: mappedStatus,
+            createdAt: data.createdAt || ''
           });
         }
       });
@@ -113,7 +117,160 @@ export default function BarberHomeScreen() {
     });
   };
 
-  const pendingCount = appointments.filter(a => a.status === 'pending').length;
+  const activeAppointments = appointments.filter(a => a.status === 'pending' || a.status === 'paid');
+  const finishedAppointments = appointments
+    .filter(a => a.status === 'attended' || a.status === 'no_show')
+    .sort((a, b) => {
+      if (a.createdAt && b.createdAt) {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      return b.id.localeCompare(a.id);
+    });
+
+  const renderCard = (item: BarberAppointment) => {
+    const isAttended = item.status === 'attended';
+    const isNoShow = item.status === 'no_show';
+    const isPaid = item.status === 'paid';
+    const isPending = item.status === 'pending';
+    const isActive = isPending || isPaid;
+
+    return (
+      <Card
+        key={item.id}
+        style={[
+          styles.card,
+          {
+            backgroundColor: theme.colors.surface,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: isAttended
+              ? 'rgba(76, 175, 80, 0.3)'
+              : isNoShow
+              ? 'rgba(244, 67, 54, 0.3)'
+              : isPaid
+              ? 'rgba(76, 175, 80, 0.4)'
+              : 'rgba(212, 175, 55, 0.35)',
+            opacity: isActive ? 1 : 0.75,
+          }
+        ]}
+        elevation={isActive ? 2 : 1}
+        onPress={() => handleCardPress(item)}
+      >
+        <Card.Content style={{ padding: 14 }}>
+          {/* Card Header Row */}
+          <View style={styles.cardHeader}>
+            <Badge
+              style={[
+                styles.statusBadge,
+                {
+                  backgroundColor: isAttended
+                    ? 'rgba(76, 175, 80, 0.15)'
+                    : isNoShow
+                    ? 'rgba(244, 67, 54, 0.15)'
+                    : isPaid
+                    ? 'rgba(76, 175, 80, 0.15)'
+                    : 'rgba(212, 175, 55, 0.15)',
+                  color: isAttended || isPaid
+                    ? '#4CAF50'
+                    : isNoShow
+                    ? theme.colors.error
+                    : theme.colors.primary,
+                  borderWidth: 1,
+                  borderColor: isAttended || isPaid
+                    ? 'rgba(76, 175, 80, 0.3)'
+                    : isNoShow
+                    ? 'rgba(244, 67, 54, 0.3)'
+                    : 'rgba(212, 175, 55, 0.3)',
+                }
+              ]}
+            >
+              {isAttended
+                ? '✓ ATENDIDO'
+                : isNoShow
+                ? '✕ NO ASISTIÓ'
+                : isPaid
+                ? '✓ PAGADO'
+                : 'PENDIENTE'}
+            </Badge>
+
+            <Text variant="labelSmall" style={{ opacity: 0.5 }}>
+              #{item.id.substring(0, 8)}
+            </Text>
+          </View>
+
+          {/* Client Info */}
+          <View style={styles.clientInfo}>
+            <Avatar.Text
+              size={46}
+              label={item.clientAvatar}
+              style={{ backgroundColor: theme.colors.surfaceVariant }}
+              labelStyle={{ color: theme.colors.primary, fontWeight: 'bold' }}
+            />
+            <View style={styles.clientDetails}>
+              <Text variant="titleMedium" style={[styles.clientName, { color: theme.colors.secondary }]}>
+                {item.clientName}
+              </Text>
+              {item.clientPhone ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                  <IconSymbol size={13} name="phone.fill" color={theme.colors.primary} style={{ marginRight: 4 }} />
+                  <Text variant="bodySmall" style={{ opacity: 0.6 }}>
+                    {item.clientPhone}
+                  </Text>
+                </View>
+              ) : null}
+              <Text variant="bodySmall" style={[styles.serviceName, { color: theme.colors.primary, fontWeight: '500', marginTop: 2 }]}>
+                {item.service}
+              </Text>
+            </View>
+          </View>
+
+          {/* Details Box: Día & Horario */}
+          <View style={[styles.detailsBox, { backgroundColor: theme.colors.background }]}>
+            <View style={styles.detailRow}>
+              <IconSymbol size={15} name="calendar" color={theme.colors.primary} style={{ marginRight: 8 }} />
+              <Text variant="bodyMedium" style={{ color: theme.colors.secondary }}>
+                Día del Servicio: <Text style={{ fontWeight: 'bold' }}>{item.date}</Text>
+              </Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <IconSymbol size={15} name="clock" color={theme.colors.primary} style={{ marginRight: 8 }} />
+              <Text variant="bodyMedium" style={{ color: theme.colors.secondary }}>
+                Horario: <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{item.time}</Text>
+              </Text>
+            </View>
+          </View>
+
+          {/* Action Buttons for Active Appointments */}
+          {isActive && (
+            <View style={styles.actions}>
+              <Button
+                mode="outlined"
+                onPress={() => updateStatus(item.id, 'no_show')}
+                style={[styles.actionBtn, { borderColor: 'rgba(244, 67, 54, 0.5)' }]}
+                textColor={theme.colors.error}
+                icon="close-circle-outline"
+                compact
+                labelStyle={{ fontSize: 12 }}
+              >
+                No Asistió
+              </Button>
+              <Button
+                mode="contained"
+                onPress={() => updateStatus(item.id, 'attended')}
+                style={[styles.actionBtn, { backgroundColor: theme.colors.primary, borderRadius: 6 }]}
+                labelStyle={{ color: '#121212', fontWeight: 'bold', fontSize: 12 }}
+                icon="check-circle-outline"
+                compact
+              >
+                Atendido
+              </Button>
+            </View>
+          )}
+        </Card.Content>
+      </Card>
+    );
+  };
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.background }]}>
@@ -128,7 +285,7 @@ export default function BarberHomeScreen() {
           </Text>
         </View>
         <Badge size={28} style={[styles.badge, { backgroundColor: theme.colors.primary, color: '#121212' }]}>
-          {pendingCount}
+          {activeAppointments.length}
         </Badge>
       </View>
 
@@ -140,7 +297,7 @@ export default function BarberHomeScreen() {
           </Text>
         </View>
 
-        {/* Chronological Appointments List */}
+        {/* Appointments List Grouped */}
         <View style={styles.listContainer}>
           {loading ? (
             <ActivityIndicator style={{ marginVertical: 40 }} color={theme.colors.primary} />
@@ -149,94 +306,90 @@ export default function BarberHomeScreen() {
               No tienes citas programadas por el momento.
             </Text>
           ) : (
-            appointments.map((item) => {
-            const isAttended = item.status === 'attended';
-            const isNoShow = item.status === 'no_show';
-            const isPending = item.status === 'pending';
+            <>
+              {/* 1. CITAS ACTIVAS */}
+              <View style={styles.sectionHeaderRow}>
+                <IconSymbol size={16} name="clock" color={theme.colors.primary} style={{ marginRight: 6 }} />
+                <Text variant="labelLarge" style={[styles.sectionTitle, { color: theme.colors.primary, fontWeight: 'bold' }]}>
+                  CITAS ACTIVAS ({activeAppointments.length})
+                </Text>
+              </View>
 
-            return (
-              <Card
-                key={item.id}
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: theme.colors.surface,
-                    opacity: isPending ? 1 : 0.6,
-                    borderLeftColor: isAttended ? '#4CAF50' : isNoShow ? theme.colors.error : theme.colors.primary,
-                    borderLeftWidth: 5,
-                  }
-                ]}
-                elevation={isPending ? 2 : 1}
-                onPress={() => handleCardPress(item)}
-              >
-                <Card.Content style={styles.cardContent}>
-                  {/* Card Header Row */}
-                  <View style={styles.cardHeader}>
+              {activeAppointments.length === 0 ? (
+                <View style={[styles.emptySectionBox, { backgroundColor: theme.colors.surface }]}>
+                  <Text variant="bodySmall" style={{ opacity: 0.5, textAlign: 'center' }}>
+                    No hay citas pendientes o pagadas por atender.
+                  </Text>
+                </View>
+              ) : (
+                activeAppointments.map(item => renderCard(item))
+              )}
+
+              {/* 2. CITAS CONCLUIDAS Y CANCELADAS (DESPLEGABLE / COLLAPSIBLE BOTÓN INTERACTIVO) */}
+              {finishedAppointments.length > 0 && (
+                <View style={{ marginTop: 12 }}>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setIsFinishedExpanded(!isFinishedExpanded)}
+                    style={[
+                      styles.collapsibleButton,
+                      {
+                        backgroundColor: isFinishedExpanded
+                          ? 'rgba(212, 175, 55, 0.08)'
+                          : theme.colors.surface,
+                        borderColor: isFinishedExpanded
+                          ? 'rgba(212, 175, 55, 0.4)'
+                          : 'rgba(150, 150, 150, 0.2)',
+                      }
+                    ]}
+                  >
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <IconSymbol size={16} name="clock" color={theme.colors.primary} style={{ marginRight: 6 }} />
-                      <Text variant="titleMedium" style={[styles.time, { color: theme.colors.primary }]}>
-                        {item.time}
+                      <IconSymbol
+                        size={18}
+                        name="clock"
+                        color={isFinishedExpanded ? theme.colors.primary : theme.colors.outline}
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text
+                        variant="labelLarge"
+                        style={{
+                          color: isFinishedExpanded ? theme.colors.primary : theme.colors.secondary,
+                          fontWeight: 'bold',
+                          letterSpacing: 0.3
+                        }}
+                      >
+                        CONCLUIDAS Y CANCELADAS ({finishedAppointments.length})
                       </Text>
                     </View>
 
-                    {!isPending && (
-                      <Badge style={{
-                        backgroundColor: isAttended ? '#4CAF50' : theme.colors.error,
-                        color: '#ffffff',
-                        fontWeight: 'bold'
-                      }}>
-                        {isAttended ? 'ATENDIDO' : 'NO ASISTIÓ'}
-                      </Badge>
-                    )}
-                  </View>
-
-                  {/* Client Info */}
-                  <View style={styles.clientInfo}>
-                    <Avatar.Text
-                      size={44}
-                      label={item.clientAvatar}
-                      style={{ backgroundColor: theme.colors.surfaceVariant }}
-                      labelStyle={{ color: theme.colors.primary, fontWeight: 'bold' }}
-                    />
-                    <View style={styles.clientDetails}>
-                      <Text variant="titleMedium" style={[styles.clientName, { color: theme.colors.secondary }]}>
-                        {item.clientName}
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text
+                        variant="labelSmall"
+                        style={{
+                          color: theme.colors.primary,
+                          fontWeight: 'bold',
+                          marginRight: 4
+                        }}
+                      >
+                        {isFinishedExpanded ? 'Ocultar' : 'Ver todas'}
                       </Text>
-                      <Text variant="bodySmall" style={styles.serviceName}>
-                        {item.service}
-                      </Text>
+                      <IconSymbol
+                        size={16}
+                        name={isFinishedExpanded ? "chevron.up" : "chevron.down"}
+                        color={theme.colors.primary}
+                      />
                     </View>
-                  </View>
+                  </TouchableOpacity>
 
-                  {/* Action Buttons for Pending */}
-                  {isPending && (
-                    <View style={styles.actions}>
-                      <Button
-                        mode="outlined"
-                        onPress={() => updateStatus(item.id, 'no_show')}
-                        style={[styles.actionBtn, { borderColor: theme.colors.error }]}
-                        textColor={theme.colors.error}
-                        icon="close-circle-outline"
-                        compact
-                      >
-                        No Asistió
-                      </Button>
-                      <Button
-                        mode="contained"
-                        onPress={() => updateStatus(item.id, 'attended')}
-                        style={[styles.actionBtn, { backgroundColor: theme.colors.primary }]}
-                        labelStyle={{ color: '#121212', fontWeight: 'bold' }}
-                        icon="check-circle-outline"
-                        compact
-                      >
-                        Atendido
-                      </Button>
+                  {isFinishedExpanded && (
+                    <View style={{ marginTop: 12, gap: 12 }}>
+                      {finishedAppointments.map(item => renderCard(item))}
                     </View>
                   )}
-                </Card.Content>
-              </Card>
-            );
-          }))}
+                </View>
+              )}
+            </>
+          )}
         </View>
       </ScrollView>
 
@@ -320,6 +473,55 @@ const styles = StyleSheet.create({
   },
   serviceName: {
     opacity: 0.6,
+  },
+  statusBadge: {
+    alignSelf: 'flex-start',
+    fontSize: 9,
+    fontWeight: 'bold',
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  detailsBox: {
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.12)',
+    marginBottom: 10,
+    gap: 6,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    letterSpacing: 0.5,
+  },
+  emptySectionBox: {
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.1)',
+    marginBottom: 12,
+  },
+  collapsibleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    elevation: 1,
+  },
+  sectionDividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
   },
   actions: {
     flexDirection: 'row',
