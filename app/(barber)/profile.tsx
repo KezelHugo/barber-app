@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Avatar, Button, Card, Divider, Icon, ProgressBar, Text, useTheme } from 'react-native-paper';
+import { Avatar, Button, Card, Divider, Icon, ProgressBar, Text, useTheme, Portal, Dialog, TextInput, HelperText, Snackbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUserRole } from '@/context/user-role';
+import { auth } from '@/config/firebase';
+import { updatePassword } from 'firebase/auth';
 
 interface ClientReview {
   id: string;
@@ -16,6 +18,56 @@ interface ClientReview {
 export default function BarberProfileScreen() {
   const theme = useTheme();
   const { userName, userEmail, logout } = useUserRole();
+
+  // Password changing states
+  const [passwordDialogVisible, setPasswordDialogVisible] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [loadingPassword, setLoadingPassword] = useState(false);
+  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMsg, setSnackbarMsg] = useState('');
+
+  const handleUpdatePassword = async () => {
+    if (!newPassword.trim()) {
+      setPasswordError('Por favor, ingresa una nueva contraseña.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Las contraseñas no coinciden.');
+      return;
+    }
+
+    setLoadingPassword(true);
+    setPasswordError('');
+
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        await updatePassword(user, newPassword.trim());
+        setPasswordDialogVisible(false);
+        setNewPassword('');
+        setConfirmPassword('');
+        setSnackbarMsg('Contraseña actualizada con éxito.');
+        setSnackbarVisible(true);
+      } else {
+        setPasswordError('No se encontró una sesión de usuario activa.');
+      }
+    } catch (err: any) {
+      console.error("Error al actualizar contraseña:", err);
+      if (err.code === 'auth/requires-recent-login') {
+        setPasswordError('Por seguridad, debes cerrar sesión e iniciar sesión de nuevo antes de cambiar tu contraseña.');
+      } else {
+        setPasswordError('Error al actualizar la contraseña. Reinténtalo.');
+      }
+    } finally {
+      setLoadingPassword(false);
+    }
+  };
 
   // Mock list of reviews
   const reviews: ClientReview[] = [
@@ -148,17 +200,91 @@ export default function BarberProfileScreen() {
         </Card>
 
         {/* Actions */}
-        <View style={{ marginBottom: 20 }}>
+        <View style={{ marginBottom: 20, gap: 12 }}>
+          <Button
+            mode="outlined"
+            onPress={() => setPasswordDialogVisible(true)}
+            style={{ borderColor: theme.colors.primary }}
+            textColor={theme.colors.primary}
+            icon="lock-reset"
+            labelStyle={{ fontWeight: 'bold' }}
+          >
+            Cambiar Contraseña
+          </Button>
+
           <Button
             mode="outlined"
             onPress={logout}
-            style={{ borderColor: theme.colors.outline }}
-            textColor={theme.colors.secondary}
+            style={{ borderColor: theme.colors.primary }}
+            textColor={theme.colors.primary}
+            icon="logout"
+            labelStyle={{ fontWeight: 'bold' }}
           >
             Cerrar Sesión
           </Button>
         </View>
       </ScrollView>
+
+      {/* Change Password Dialog */}
+      <Portal>
+        <Dialog
+          visible={passwordDialogVisible}
+          onDismiss={() => !loadingPassword && setPasswordDialogVisible(false)}
+          style={{ backgroundColor: theme.colors.surface, borderRadius: 4 }}
+        >
+          <Dialog.Title style={{ color: theme.colors.primary }}>Cambiar Contraseña</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              label="Nueva Contraseña"
+              value={newPassword}
+              onChangeText={setNewPassword}
+              mode="outlined"
+              secureTextEntry
+              disabled={loadingPassword}
+              style={{ marginBottom: 12 }}
+            />
+            <TextInput
+              label="Confirmar Contraseña"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              mode="outlined"
+              secureTextEntry
+              disabled={loadingPassword}
+              style={{ marginBottom: 8 }}
+            />
+            {passwordError ? (
+              <HelperText type="error" visible={!!passwordError}>
+                {passwordError}
+              </HelperText>
+            ) : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPasswordDialogVisible(false)} textColor={theme.colors.outline} disabled={loadingPassword}>
+              Cancelar
+            </Button>
+            <Button
+              onPress={handleUpdatePassword}
+              textColor={theme.colors.primary}
+              labelStyle={{ fontWeight: 'bold' }}
+              loading={loadingPassword}
+              disabled={loadingPassword}
+            >
+              Actualizar
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
+      <Snackbar
+        visible={snackbarVisible}
+        onDismiss={() => setSnackbarVisible(false)}
+        duration={3000}
+        style={{ backgroundColor: theme.colors.secondary }}
+      >
+        <Text style={{ color: theme.colors.background, fontWeight: 'bold' }}>
+          {snackbarMsg}
+        </Text>
+      </Snackbar>
     </SafeAreaView>
   );
 }

@@ -1,9 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, ScrollView } from 'react-native';
-import { Text, Card, Button, useTheme, ProgressBar, IconButton, Divider, Portal, Dialog } from 'react-native-paper';
+import { Text, Card, Button, useTheme, ProgressBar, IconButton, Divider, Portal, Dialog, ActivityIndicator, Avatar } from 'react-native-paper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { auth, db } from '@/config/firebase';
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { getDirectImageUrl } from '@/utils/image-url';
+
+function calculateEndTime(startSlotStr?: string, durationMinutes: number = 0): string {
+  if (!startSlotStr || typeof startSlotStr !== 'string') return '';
+  const parts = startSlotStr.split(' ');
+  if (parts.length < 2) return startSlotStr;
+
+  const [timePart, period] = parts;
+  const [hoursStr, minutesStr] = timePart.split(':');
+  let hours = parseInt(hoursStr, 10);
+  const minutes = parseInt(minutesStr, 10);
+
+  if (isNaN(hours) || isNaN(minutes)) return startSlotStr;
+
+  if (period === 'PM' && hours < 12) {
+    hours += 12;
+  } else if (period === 'AM' && hours === 12) {
+    hours = 0;
+  }
+
+  const startDate = new Date();
+  startDate.setHours(hours, minutes, 0, 0);
+
+  const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
+
+  let endHours = endDate.getHours();
+  const endMinutes = endDate.getMinutes();
+  const endPeriod = endHours >= 12 ? 'PM' : 'AM';
+
+  if (endHours > 12) {
+    endHours -= 12;
+  } else if (endHours === 0) {
+    endHours = 12;
+  }
+
+  const formattedMinutes = endMinutes < 10 ? `0${endMinutes}` : `${endMinutes}`;
+  const formattedHours = endHours < 10 ? `0${endHours}` : `${endHours}`;
+
+  return `${formattedHours}:${formattedMinutes} ${endPeriod}`;
+}
 
 export default function StepConfirmationScreen() {
   const theme = useTheme();
@@ -15,22 +57,138 @@ export default function StepConfirmationScreen() {
 
   const [confirmDialogVisible, setConfirmDialogVisible] = useState(false);
 
-  // Mock mapping of service names
-  const serviceList = [
-    { id: '1', name: 'Corte de Cabello Signature', price: 45, duration: '35 min' },
-    { id: '2', name: 'Corte de Cabello Clásico', price: 35, duration: '25 min' },
-    { id: '3', name: 'Perfilado de Barba Imperial', price: 30, duration: '20 min' },
-    { id: '4', name: 'Recorte de Barba Express', price: 20, duration: '15 min' },
-    { id: '5', name: 'Mascarilla Carbón Activo', price: 25, duration: '20 min' },
-    { id: '6', name: 'Exfoliación Facial & Hidratación', price: 20, duration: '15 min' },
-  ];
+  // Real database services state
+  const [selectedServices, setSelectedServices] = useState<any[]>([]);
+  const [barberImageUrl, setBarberImageUrl] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [loadingSave, setLoadingSave] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  // Filter selected services based on passed comma-separated string of IDs
-  const selectedServiceIds = serviceIds ? (serviceIds as string).split(',') : [];
-  const selectedServices = serviceList.filter(s => selectedServiceIds.includes(s.id));
+  // Total duration in minutes
+  const totalDuration = selectedServices.reduce((sum, s) => sum + (Number(s.duration) || 0), 0);
+  const endTimeStr = calculateEndTime(time as string, totalDuration);
 
-  const handleConfirm = () => {
-    setConfirmDialogVisible(true);
+  // Fetch barber image
+  useEffect(() => {
+    if (!barberId) return;
+    const fetchBarber = async () => {
+      try {
+        const bDoc = await getDoc(doc(db, 'users', barberId as string));
+        if (bDoc.exists()) {
+          const bData = bDoc.data();
+          setBarberImageUrl(bData.imageUrl || '');
+        }
+      } catch (err) {
+        console.error("Error al obtener imagen del barbero:", err);
+      }
+    };
+    fetchBarber();
+  }, [barberId]);
+
+  useEffect(() => {
+    const fetchServices = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'services'));
+        const dbServices: any[] = [];
+        querySnapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          dbServices.push({
+            id: docSnap.id,
+            name: data.name || '',
+            price: Number(data.price) || 0,
+            promoPrice: data.promoPrice !== undefined ? Number(data.promoPrice) : undefined,
+            duration: Number(data.duration) || 0,
+            category: data.category || 'cortes',
+          });
+        });
+        
+        const selectedIds = serviceIds ? (serviceIds as string).split(',') : [];
+        const filtered = dbServices.filter(s => selectedIds.includes(s.id));
+        setSelectedServices(filtered);
+      } catch (err) {
+        console.error("Error al cargar servicios en confirmación:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchServices();
+  }, [serviceIds]);
+
+  const handleConfirm = async () => {
+    setLoadingSave(true);
+    setErrorMsg('');
+
+    try {
+      // 1. Anti-overlap double check in Firestore
+      const conflictQuery = query(
+        collection(db, 'appointments'),
+        where('barberId', '==', barberId),
+        where('date', '==', date),
+        where('time', '==', time)
+      );
+      const conflictSnapshot = await getDocs(conflictQuery);
+      let isOccupied = false;
+      conflictSnapshot.forEach((docSnap) => {
+        if (docSnap.data().status !== 'cancelled') {
+          isOccupied = true;
+        }
+      });
+
+      if (isOccupied) {
+        setErrorMsg('Lo sentimos, este horario acaba de ser reservado por otro cliente. Por favor regresa y elige otro horario.');
+        setLoadingSave(false);
+        return;
+      }
+
+      // 2. Fetch current user profile if available
+      let customerName = 'Cliente';
+      let customerPhone = '';
+      let customerEmail = auth.currentUser?.email || '';
+
+      if (auth.currentUser) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+          if (userDoc.exists()) {
+            const uData = userDoc.data();
+            customerName = uData.name || customerName;
+            customerPhone = uData.phone || '';
+          }
+        } catch (err) {
+          console.error("Error al obtener perfil del cliente:", err);
+        }
+      }
+
+      // 3. Save to /appointments in Firestore
+      const servicesSummary = selectedServices.map(s => s.name).join(', ') || 'Servicios de Barbería';
+      const newDocRef = doc(collection(db, 'appointments'));
+
+      await setDoc(newDocRef, {
+        id: newDocRef.id,
+        customerId: auth.currentUser?.uid || 'guest',
+        customerName,
+        customerPhone,
+        customerEmail,
+        barberId: barberId || '',
+        barberName: barberName || '',
+        serviceIds: serviceIds ? (serviceIds as string).split(',') : [],
+        servicesSummary,
+        totalPrice: Number(totalPrice) || 0,
+        totalDuration: Number(totalDuration) || 30,
+        endTime: endTimeStr || '',
+        date: date || '',
+        time: time || '',
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      });
+
+      setConfirmDialogVisible(true);
+    } catch (err) {
+      console.error("Error al registrar cita en Firestore:", err);
+      setErrorMsg('Ocurrió un error al procesar la reserva. Inténtalo de nuevo.');
+    } finally {
+      setLoadingSave(false);
+    }
   };
 
   const handleFinish = () => {
@@ -76,11 +234,16 @@ export default function StepConfirmationScreen() {
                 <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
                   {date}
                 </Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, flexWrap: 'wrap' }}>
                   <IconSymbol size={16} name="clock" color={theme.colors.primary} style={{ marginRight: 6 }} />
                   <Text variant="bodyMedium" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
-                    {time}
+                    {time} {endTimeStr ? `- ${endTimeStr}` : ''}
                   </Text>
+                  {endTimeStr ? (
+                    <Text variant="bodySmall" style={{ opacity: 0.6, fontSize: 12, marginLeft: 6 }}>
+                      (Finaliza aprox. {endTimeStr})
+                    </Text>
+                  ) : null}
                 </View>
               </View>
             </View>
@@ -94,7 +257,20 @@ export default function StepConfirmationScreen() {
               BARBERO SELECCIONADO
             </Text>
             <View style={styles.barberRow}>
-              <IconButton icon="account" size={32} iconColor={theme.colors.secondary} style={{ backgroundColor: theme.colors.surfaceVariant, margin: 0 }} />
+              {barberImageUrl ? (
+                <Avatar.Image
+                  size={50}
+                  source={{ uri: getDirectImageUrl(barberImageUrl) }}
+                  style={{ backgroundColor: theme.colors.surfaceVariant }}
+                />
+              ) : (
+                <Avatar.Text
+                  size={50}
+                  label={barberName ? (barberName as string).split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase() : 'BA'}
+                  style={{ backgroundColor: theme.colors.primary }}
+                  labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+                />
+              )}
               <View style={{ marginLeft: 12 }}>
                 <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
                   {barberName}
@@ -114,28 +290,48 @@ export default function StepConfirmationScreen() {
               SERVICIOS SELECCIONADOS
             </Text>
             
-            <View style={styles.servicesList}>
-              {selectedServices.map(service => (
-                <View key={service.id} style={styles.serviceItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
-                      {service.name}
-                    </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                      <IconSymbol size={13} name="clock" color="#888888" style={{ marginRight: 4 }} />
-                      <Text variant="bodySmall" style={{ opacity: 0.5 }}>
-                        {service.duration}
+            {loading ? (
+              <ActivityIndicator style={{ marginVertical: 20 }} color={theme.colors.primary} />
+            ) : (
+              <View style={styles.servicesList}>
+                {selectedServices.map(service => {
+                  const isPromo = service.category === 'promocion' && service.promoPrice !== undefined;
+                  const activePrice = isPromo ? service.promoPrice : service.price;
+
+                  return (
+                    <View key={service.id} style={styles.serviceItem}>
+                      <View style={{ flex: 1 }}>
+                        <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                          {service.name}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                          <IconSymbol size={13} name="clock" color="#888888" style={{ marginRight: 4 }} />
+                          <Text variant="bodySmall" style={{ opacity: 0.5 }}>
+                            {service.duration} min
+                          </Text>
+                        </View>
+                      </View>
+                      <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                        S/. {activePrice}
                       </Text>
                     </View>
-                  </View>
-                  <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
-                    S/. {service.price}
-                  </Text>
-                </View>
-              ))}
-            </View>
+                  );
+                })}
+              </View>
+            )}
 
             <Divider style={styles.divider} />
+
+            {/* Total Duration Row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <IconSymbol size={16} name="clock" color={theme.colors.primary} style={{ marginRight: 6 }} />
+                <Text variant="bodyMedium" style={{ opacity: 0.7 }}>Tiempo estimado total:</Text>
+              </View>
+              <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                {totalDuration} min
+              </Text>
+            </View>
 
             <View style={styles.totalRow}>
               <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>Total a pagar:</Text>
@@ -143,6 +339,14 @@ export default function StepConfirmationScreen() {
                 S/. {totalPrice}
               </Text>
             </View>
+
+            {errorMsg ? (
+              <View style={{ backgroundColor: 'rgba(244, 67, 54, 0.15)', padding: 12, borderRadius: 8, marginTop: 12 }}>
+                <Text style={{ color: theme.colors.error, fontWeight: 'bold', fontSize: 13, textAlign: 'center' }}>
+                  {errorMsg}
+                </Text>
+              </View>
+            ) : null}
           </Card.Content>
         </Card>
       </ScrollView>
@@ -152,34 +356,71 @@ export default function StepConfirmationScreen() {
         <Button
           mode="contained"
           onPress={handleConfirm}
+          loading={loadingSave}
+          disabled={loadingSave}
           style={[styles.confirmBtn, { backgroundColor: theme.colors.primary }]}
           labelStyle={{ color: '#121212', fontWeight: 'bold', fontSize: 16 }}
         >
-          Confirmar Reserva
+          {loadingSave ? 'Guardando Reserva...' : 'Confirmar Reserva'}
         </Button>
       </View>
 
       {/* Success Dialog */}
       <Portal>
-        <Dialog visible={confirmDialogVisible} dismissable={false} style={{ backgroundColor: theme.colors.surface }}>
+        <Dialog
+          visible={confirmDialogVisible}
+          dismissable={false}
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(212, 175, 55, 0.35)',
+            paddingVertical: 4,
+          }}
+        >
           <Dialog.Content style={styles.successDialogContent}>
-            <IconButton icon="check-circle" size={80} iconColor="#4CAF50" style={{ margin: 0, marginBottom: 16 }} />
+            <View style={styles.successIconBadge}>
+              <IconButton icon="check-circle" size={48} iconColor={theme.colors.primary} style={{ margin: 0 }} />
+            </View>
+
             <Text variant="headlineSmall" style={[styles.successTitle, { color: theme.colors.secondary }]}>
               ¡Cita Reservada!
             </Text>
-            <Text variant="bodyMedium" style={styles.successDesc}>
-              Tu cita con <Text style={{ fontWeight: 'bold' }}>{barberName}</Text> ha sido agendada con éxito para el <Text style={{ fontWeight: 'bold' }}>{date}</Text> a las <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{time}</Text>.
-            </Text>
+
+            <View style={[styles.successSummaryBox, { backgroundColor: theme.colors.background }]}>
+              <View style={styles.summaryItemRow}>
+                <IconSymbol size={16} name="person.fill" color={theme.colors.primary} style={{ marginRight: 8 }} />
+                <Text variant="bodyMedium" style={{ color: theme.colors.secondary, flex: 1 }}>
+                  Barbero: <Text style={{ fontWeight: 'bold' }}>{barberName}</Text>
+                </Text>
+              </View>
+
+              <View style={styles.summaryItemRow}>
+                <IconSymbol size={16} name="calendar" color={theme.colors.primary} style={{ marginRight: 8 }} />
+                <Text variant="bodyMedium" style={{ color: theme.colors.secondary, flex: 1 }}>
+                  Fecha: <Text style={{ fontWeight: 'bold' }}>{date}</Text>
+                </Text>
+              </View>
+
+              <View style={styles.summaryItemRow}>
+                <IconSymbol size={16} name="clock" color={theme.colors.primary} style={{ marginRight: 8 }} />
+                <Text variant="bodyMedium" style={{ color: theme.colors.secondary, flex: 1 }}>
+                  Horario: <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>{time} {endTimeStr ? `- ${endTimeStr}` : ''}</Text>
+                </Text>
+              </View>
+            </View>
+
             <Text variant="bodySmall" style={styles.successNote}>
-              * Puedes pagar por adelantado con Yape/Plin o al finalizar tu atención.
+              * Puedes pagar por adelantado con Yape/Plin o al finalizar tu atención en la sede.
             </Text>
           </Dialog.Content>
-          <Dialog.Actions style={{ justifyContent: 'center', paddingBottom: 16 }}>
+
+          <Dialog.Actions style={{ justifyContent: 'center', paddingHorizontal: 20, paddingBottom: 16 }}>
             <Button
               mode="contained"
               onPress={handleFinish}
-              style={{ backgroundColor: theme.colors.primary, width: '80%' }}
-              labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+              style={{ backgroundColor: theme.colors.primary, width: '100%', borderRadius: 8, paddingVertical: 2 }}
+              labelStyle={{ color: '#121212', fontWeight: 'bold', fontSize: 15 }}
             >
               Ver Mis Citas
             </Button>
@@ -290,21 +531,38 @@ const styles = StyleSheet.create({
   },
   successDialogContent: {
     alignItems: 'center',
-    paddingTop: 16,
+    paddingTop: 8,
+  },
+  successIconBadge: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
   },
   successTitle: {
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 4,
   },
-  successDesc: {
-    textAlign: 'center',
-    lineHeight: 20,
-    opacity: 0.8,
+  successSummaryBox: {
+    width: '100%',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(150, 150, 150, 0.15)',
+    marginVertical: 10,
+    gap: 8,
+  },
+  summaryItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   successNote: {
     textAlign: 'center',
     opacity: 0.5,
-    fontSize: 12,
-    marginTop: 12,
+    fontSize: 11,
+    marginTop: 4,
   },
 });

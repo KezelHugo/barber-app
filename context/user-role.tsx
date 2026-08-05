@@ -42,6 +42,15 @@ export const UserRoleProvider = ({ children }: { children: ReactNode }) => {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           if (userDoc.exists()) {
             const userData = userDoc.data();
+            if (userData.isActive === false) {
+              await signOut(auth);
+              setRole('guest');
+              setIsLoggedIn(false);
+              setUserName('Invitado');
+              setUserEmail('');
+              setLoading(false);
+              return;
+            }
             setRole(userData.role as UserRole);
             setUserName(userData.name || 'Usuario');
             setUserEmail(user.email || '');
@@ -72,28 +81,39 @@ export const UserRoleProvider = ({ children }: { children: ReactNode }) => {
     const user = userCredential.user;
 
     // Fetch user profile from Firestore
-    const userDoc = await getDoc(doc(db, 'users', user.uid));
-    if (!userDoc.exists()) {
-      throw new Error('El perfil de usuario no está registrado en la base de datos de la barbería.');
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (!userDoc.exists()) {
+        await signOut(auth);
+        throw new Error('El perfil de usuario no está registrado en la base de datos de la barbería.');
+      }
+
+      const userData = userDoc.data();
+      if (userData.isActive === false) {
+        await signOut(auth);
+        throw new Error('Tu cuenta ha sido desactivada por el administrador. Comunícate con soporte.');
+      }
+
+      const userRole = userData.role as UserRole;
+
+      setRole(userRole);
+      setUserName(userData.name || 'Usuario');
+      setUserEmail(user.email || '');
+      setIsLoggedIn(true);
+
+      // Route reactive redirection
+      if (userRole === 'customer') {
+        router.replace('/(customer)/home');
+      } else if (userRole === 'barber') {
+        router.replace('/(barber)/home');
+      } else if (userRole === 'admin') {
+        router.replace('/(admin)/dashboard');
+      }
+      return userRole;
+    } catch (err) {
+      await signOut(auth);
+      throw err;
     }
-
-    const userData = userDoc.data();
-    const userRole = userData.role as UserRole;
-
-    setRole(userRole);
-    setUserName(userData.name || 'Usuario');
-    setUserEmail(user.email || '');
-    setIsLoggedIn(true);
-
-    // Route reactive redirection
-    if (userRole === 'customer') {
-      router.replace('/(customer)/home');
-    } else if (userRole === 'barber') {
-      router.replace('/(barber)/home');
-    } else if (userRole === 'admin') {
-      router.replace('/(admin)/dashboard');
-    }
-    return userRole;
   };
 
   const signUp = async (name: string, email: string, phone: string, password: string) => {
@@ -107,6 +127,7 @@ export const UserRoleProvider = ({ children }: { children: ReactNode }) => {
       email,
       phone,
       role: 'customer', // by default new registrations are customers
+      isActive: true,   // Active access by default
       photoUrl: '', // Default profile image is empty
       stylePreferences: '', // Default style preferences is empty
       createdAt: new Date().toISOString()

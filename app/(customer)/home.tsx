@@ -1,29 +1,36 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useUserRole } from '@/context/user-role';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Dimensions, FlatList, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Avatar, Badge, Button, Card, Dialog, IconButton, Modal, Portal, Text, useTheme } from 'react-native-paper';
+import React, { useState, useEffect, useRef } from 'react';
+import { Dimensions, FlatList, ScrollView, StyleSheet, TouchableOpacity, View, Linking, Platform } from 'react-native';
+import { Avatar, Badge, Button, Card, Dialog, IconButton, Modal, Portal, Text, useTheme, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { db } from '@/config/firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { Image } from 'expo-image';
+import { getDirectImageUrl } from '@/utils/image-url';
 
 const { width: screenWidth } = Dimensions.get('window');
-const SERVICE_CARD_WIDTH = screenWidth * 0.41;
+const SERVICE_CARD_WIDTH = screenWidth * 0.64;
 
 interface ServiceItem {
   id: string;
   name: string;
-  price: string;
-  duration: string;
-  category: string;
+  price: number;
+  promoPrice?: number;
+  duration: number; // en minutos
+  category: 'promocion' | 'cortes' | 'barba' | 'faciales';
+  description: string;
+  imageUrl?: string;
 }
 
-interface StyleItem {
-  id: string;
-  name: string;
-  type: string;
-  description: string;
-  bgIcon: string;
-}
+const CATEGORY_LABELS: Record<string, string> = {
+  promocion: 'Promoción',
+  cortes: 'Cortes',
+  barba: 'Barba',
+  faciales: 'Faciales'
+};
 
 export default function HomeScreen() {
   const theme = useTheme();
@@ -34,24 +41,82 @@ export default function HomeScreen() {
   const [dialogVisible, setDialogVisible] = useState(false);
   const [catalogVisible, setCatalogVisible] = useState(false);
 
-  // Mock catalog services (aligned with booking flow step 1)
-  const services: ServiceItem[] = [
-    { id: '1', name: 'Corte de Cabello Signature', price: 'S/. 45', duration: '35 min', category: 'Corte' },
-    { id: '2', name: 'Corte de Cabello Clásico', price: 'S/. 35', duration: '25 min', category: 'Corte' },
-    { id: '3', name: 'Perfilado de Barba Imperial', price: 'S/. 30', duration: '20 min', category: 'Barba' },
-    { id: '4', name: 'Recorte de Barba Express', price: 'S/. 20', duration: '15 min', category: 'Barba' },
-    { id: '5', name: 'Mascarilla Carbón Activo', price: 'S/. 25', duration: '20 min', category: 'Facial' },
-    { id: '6', name: 'Exfoliación Facial & Hidratación', price: 'S/. 20', duration: '15 min', category: 'Facial' },
-    { id: '7', name: 'Combo VIP Imperial (Promo)', price: 'S/. 75', duration: '50 min', category: 'Combo' },
-  ];
+  // Real database services state
+  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Mock gallery styles
-  const stylesGallery: StyleItem[] = [
-    { id: '1', name: 'Degradado Alto (High Fade)', type: 'Moderno', description: 'Laterales al ras con transición suave hacia arriba', bgIcon: 'hair-dryer' },
-    { id: '2', name: 'Pompadour Clásico', type: 'Vintage', description: 'Estilo clásico con volumen superior y peinado hacia atrás', bgIcon: 'face-man' },
-    { id: '3', name: 'Recorte de Barba & Toalla Caliente', type: 'Barba', description: 'Afeitado tradicional con navaja y masaje hidratante', bgIcon: 'mustache' },
-    { id: '4', name: 'Buzz Cut Moderno', type: 'Minimalista', description: 'Corte muy corto y parejo con contornos perfilados', bgIcon: 'content-cut' },
-  ];
+  // Carousel ref and scroll state
+  const flatListRef = useRef<FlatList>(null);
+  const [scrollOffset, setScrollOffset] = useState(0);
+
+  const handleScrollRight = () => {
+    if (flatListRef.current) {
+      const step = SERVICE_CARD_WIDTH + 14;
+      const totalWidth = services.length * (SERVICE_CARD_WIDTH + 14);
+      // Si ya llegamos al final del scrollable, regresamos al inicio
+      if (scrollOffset + screenWidth >= totalWidth - 30) {
+        flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      } else {
+        flatListRef.current.scrollToOffset({
+          offset: scrollOffset + step,
+          animated: true,
+        });
+      }
+    }
+  };
+
+  const openGoogleMapsNavigation = () => {
+    const lat = -12.0963;
+    const lng = -77.0353;
+    const label = encodeURIComponent('BarberApp Sede San Isidro');
+    const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    const geoUrl = Platform.OS === 'ios'
+      ? `maps:0,0?q=${label}@${lat},${lng}`
+      : `geo:${lat},${lng}?q=${lat},${lng}(${label})`;
+
+    Linking.canOpenURL(geoUrl)
+      .then((supported) => {
+        if (supported) {
+          Linking.openURL(geoUrl);
+        } else {
+          Linking.openURL(googleMapsUrl);
+        }
+      })
+      .catch(() => {
+        Linking.openURL(googleMapsUrl);
+      });
+  };
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'services'), (snapshot) => {
+      const servicesList: ServiceItem[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        servicesList.push({
+          id: doc.id,
+          name: data.name || '',
+          price: Number(data.price) || 0,
+          promoPrice: data.promoPrice !== undefined ? Number(data.promoPrice) : undefined,
+          duration: Number(data.duration) || 0,
+          category: data.category || 'cortes',
+          description: data.description || '',
+          imageUrl: data.imageUrl || '',
+        });
+      });
+      setServices(servicesList);
+      setLoading(false);
+    }, (err) => {
+      console.error("Error al cargar servicios en HomeScreen:", err);
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // Seleccionar la promoción del mes (más barata en base a promoPrice)
+  const promoService = services
+    .filter(s => s.category === 'promocion' && s.promoPrice !== undefined)
+    .sort((a, b) => (a.promoPrice || 0) - (b.promoPrice || 0))[0];
 
   const handleBookingStart = (preselectedPromoId?: string) => {
     if (isGuest) {
@@ -95,33 +160,52 @@ export default function HomeScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Banner Promo del Mes */}
-        <Card style={[styles.promoCard, { backgroundColor: theme.colors.surfaceVariant }]} elevation={2}>
-          <Card.Content style={styles.promoContent}>
-            <View style={styles.promoHeader}>
-              <Badge style={[styles.promoBadge, { backgroundColor: theme.colors.primary }]}>PROMO DEL MES</Badge>
-              <Text variant="titleSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>20% OFF</Text>
-            </View>
-            <Text variant="headlineSmall" style={[styles.promoTitle, { color: theme.colors.secondary }]}>
-              Combo VIP Imperial
-            </Text>
-            <Text variant="bodyMedium" style={styles.promoDesc}>
-              Corte Premium + Diseño de Barba + Exfoliación Facial Express + Bebida de cortesía.
-            </Text>
-            <View style={styles.promoFooter}>
-              <Text variant="titleLarge" style={[styles.promoPrice, { color: theme.colors.primary }]}>
-                S/. 75 <Text style={styles.oldPrice}>S/. 95</Text>
+        {promoService ? (
+          <Card style={[styles.promoCard, { backgroundColor: theme.colors.surfaceVariant }]} elevation={2}>
+            <Card.Content style={styles.promoContent}>
+              <View style={styles.promoHeader}>
+                <Badge style={[styles.promoBadge, { backgroundColor: theme.colors.primary }]}>PROMO DEL MES</Badge>
+                {promoService.price > 0 && promoService.promoPrice && (
+                  <Text variant="titleSmall" style={{ color: theme.colors.primary, fontWeight: 'bold' }}>
+                    {Math.round((1 - (promoService.promoPrice / promoService.price)) * 100)}% OFF
+                  </Text>
+                )}
+              </View>
+              <Text variant="headlineSmall" style={[styles.promoTitle, { color: theme.colors.secondary }]}>
+                {promoService.name}
               </Text>
-              <Button
-                mode="contained"
-                onPress={() => handleBookingStart('7')}
-                style={[styles.promoBtn, { backgroundColor: theme.colors.primary }]}
-                labelStyle={styles.promoBtnLabel}
-              >
-                Aprovechar
-              </Button>
-            </View>
-          </Card.Content>
-        </Card>
+
+              {/* Promo Combo Image */}
+              {promoService.imageUrl && promoService.imageUrl.trim() !== '' ? (
+                <View style={styles.promoImageContainer}>
+                  <Image
+                    source={{ uri: getDirectImageUrl(promoService.imageUrl) }}
+                    style={styles.promoImage}
+                    contentFit="cover"
+                    transition={200}
+                  />
+                </View>
+              ) : null}
+
+              <Text variant="bodyMedium" style={styles.promoDesc}>
+                {promoService.description || 'Disfruta de esta oferta exclusiva por tiempo limitado.'}
+              </Text>
+              <View style={styles.promoFooter}>
+                <Text variant="titleLarge" style={[styles.promoPrice, { color: theme.colors.primary }]}>
+                  S/. {promoService.promoPrice} <Text style={styles.oldPrice}>S/. {promoService.price}</Text>
+                </Text>
+                <Button
+                  mode="contained"
+                  onPress={() => handleBookingStart(promoService.id)}
+                  style={[styles.promoBtn, { backgroundColor: theme.colors.primary }]}
+                  labelStyle={styles.promoBtnLabel}
+                >
+                  Aprovechar
+                </Button>
+              </View>
+            </Card.Content>
+          </Card>
+        ) : null}
 
         {/* Accesos Rápidos */}
         <Text style={[styles.sectionTitle, { color: theme.colors.secondary }]} variant="titleLarge">
@@ -153,96 +237,217 @@ export default function HomeScreen() {
         </View>
 
         <View style={{ position: 'relative' }}>
-          <FlatList
-            data={services}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.horizontalList}
-            renderItem={({ item }) => (
-              <Card style={[styles.serviceCard, { backgroundColor: theme.colors.surface }]} elevation={2}>
-                <Card.Content style={styles.serviceContent}>
-                  <Badge style={styles.categoryBadge}>{item.category}</Badge>
-                  <Text variant="titleMedium" numberOfLines={2} style={[styles.serviceName, { color: theme.colors.secondary }]}>
-                    {item.name}
-                  </Text>
-                  <View style={styles.serviceFooter}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <IconSymbol size={14} name="clock" color={theme.colors.outline} style={{ marginRight: 4 }} />
-                      <Text variant="bodyMedium" style={styles.serviceDuration}>{item.duration}</Text>
-                    </View>
-                    <Text variant="titleMedium" style={[styles.servicePrice, { color: theme.colors.primary }]}>
-                      {item.price}
+          {loading ? (
+            <ActivityIndicator style={{ marginVertical: 30 }} color={theme.colors.primary} />
+          ) : (
+            <FlatList
+              ref={flatListRef}
+              data={services}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.horizontalList}
+              onScroll={(event) => {
+                setScrollOffset(event.nativeEvent.contentOffset.x);
+              }}
+              scrollEventThrottle={16}
+              renderItem={({ item }) => (
+                <Card 
+                  style={[styles.serviceCard, { backgroundColor: theme.colors.surface }]} 
+                  elevation={2}
+                  onPress={() => handleBookingStart(item.id)}
+                >
+                  <Card.Content style={styles.serviceContent}>
+                    <Badge style={styles.categoryBadge}>
+                      {CATEGORY_LABELS[item.category] || item.category}
+                    </Badge>
+                    <Text variant="titleMedium" numberOfLines={2} style={[styles.serviceName, { color: theme.colors.secondary }]}>
+                      {item.name}
                     </Text>
-                  </View>
-                </Card.Content>
-              </Card>
-            )}
-          />
+
+                    {item.imageUrl && item.imageUrl.trim() !== '' ? (
+                      <View style={styles.serviceCardImageContainer}>
+                        <Image
+                          source={{ uri: getDirectImageUrl(item.imageUrl) }}
+                          style={styles.serviceCardImage}
+                          contentFit="cover"
+                          transition={200}
+                        />
+                      </View>
+                    ) : null}
+
+                    <View style={styles.serviceFooter}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <IconSymbol size={14} name="clock" color={theme.colors.outline} style={{ marginRight: 4 }} />
+                        <Text variant="bodyMedium" style={styles.serviceDuration}>{item.duration} min</Text>
+                      </View>
+                      <Text variant="titleMedium" style={[styles.servicePrice, { color: theme.colors.primary }]}>
+                        {item.category === 'promocion' && item.promoPrice !== undefined ? (
+                          `S/. ${item.promoPrice}`
+                        ) : (
+                          `S/. ${item.price}`
+                        )}
+                      </Text>
+                    </View>
+                  </Card.Content>
+                </Card>
+              )}
+            />
+          )}
           {/* Subtle floating right arrow indicator overlay */}
-          <View style={styles.carouselArrowIndicator} pointerEvents="none">
+          <View style={styles.carouselArrowIndicator}>
             <IconButton
               icon="chevron-right"
               size={18}
               iconColor={theme.colors.primary}
               style={{ backgroundColor: theme.colors.surface, margin: 0, elevation: 3 }}
+              onPress={handleScrollRight}
             />
           </View>
         </View>
 
-        {/* Galería de Estilos */}
-        <Text style={[styles.sectionTitle, { color: theme.colors.secondary }]} variant="titleLarge">
-          Galería de Estilos
-        </Text>
-        <View style={styles.galleryContainer}>
-          {stylesGallery.map((item) => (
-            <Card key={item.id} style={[styles.galleryCard, { backgroundColor: theme.colors.surface }]} elevation={2}>
-              <Card.Content style={styles.galleryContentRedesigned}>
-                {/* Text details on top */}
-                <View style={styles.galleryTextTop}>
-                  <Text variant="labelSmall" style={{ color: theme.colors.primary, fontWeight: 'bold', letterSpacing: 1 }}>
-                    {item.type.toUpperCase()}
-                  </Text>
-                  <Text variant="titleLarge" style={{ fontWeight: 'bold', color: theme.colors.secondary, marginTop: 4 }}>
-                    {item.name}
-                  </Text>
-                  <Text variant="bodyMedium" style={[styles.galleryDesc, { marginTop: 4, marginBottom: 12 }]}>
-                    {item.description}
-                  </Text>
-                </View>
+        {/* Support Chat Banner Section */}
+        <Card
+          style={[styles.supportCard, { backgroundColor: theme.colors.surface, borderColor: 'rgba(212, 175, 55, 0.3)', borderWidth: 1 }]}
+          elevation={2}
+        >
+          <Card.Content style={styles.supportCardContent}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <IconButton icon="headset" size={32} iconColor={theme.colors.primary} style={{ backgroundColor: 'rgba(212, 175, 55, 0.12)', margin: 0 }} />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                  ¿Tienes alguna duda? Pregúntanos
+                </Text>
+                <Text variant="bodySmall" style={{ opacity: 0.6, marginTop: 2 }}>
+                  Conversa directamente con nuestro equipo de atención en tiempo real.
+                </Text>
+              </View>
+            </View>
 
-                {/* Styled Large Image Container on bottom */}
-                <View style={[styles.galleryImageBox, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline }]}>
-                  <Avatar.Icon
-                    icon={item.bgIcon}
-                    size={64}
-                    style={{ backgroundColor: 'transparent' }}
-                    color={theme.colors.primary}
-                  />
-                  <Text variant="labelSmall" style={{ color: theme.colors.outline, marginTop: 8, fontStyle: 'italic' }}>
-                    Foto de Referencia
-                  </Text>
-                </View>
-              </Card.Content>
-            </Card>
-          ))}
-        </View>
+            <Button
+              mode="contained"
+              icon="message-text"
+              onPress={() => {
+                if (isGuest) {
+                  setDialogVisible(true);
+                } else {
+                  router.push('/(customer)/chat');
+                }
+              }}
+              style={[styles.supportBtn, { backgroundColor: theme.colors.primary }]}
+              labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+            >
+              Escribir al Soporte
+            </Button>
+          </Card.Content>
+        </Card>
+
+        {/* Location & Google Maps Section */}
+        <Card
+          style={[styles.locationCard, { backgroundColor: theme.colors.surface, borderColor: 'rgba(212, 175, 55, 0.3)', borderWidth: 1 }]}
+          elevation={2}
+        >
+          <Card.Content style={{ padding: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <IconButton icon="map-marker" size={30} iconColor={theme.colors.primary} style={{ backgroundColor: 'rgba(212, 175, 55, 0.12)', margin: 0, marginRight: 10 }} />
+              <View style={{ flex: 1 }}>
+                <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
+                  Nuestra Ubicación
+                </Text>
+                <Text variant="bodySmall" style={{ opacity: 0.65, marginTop: 2 }}>
+                  Av. Javier Prado Este 1450, San Isidro, Lima
+                </Text>
+              </View>
+            </View>
+
+            {/* Interactive Map View */}
+            <TouchableOpacity
+              activeOpacity={0.88}
+              onPress={openGoogleMapsNavigation}
+              style={styles.mapTouchContainer}
+            >
+              <MapView
+                provider={PROVIDER_GOOGLE}
+                style={styles.mapView}
+                initialRegion={{
+                  latitude: -12.0963,
+                  longitude: -77.0353,
+                  latitudeDelta: 0.008,
+                  longitudeDelta: 0.008,
+                }}
+                pitchEnabled={false}
+                rotateEnabled={false}
+                scrollEnabled={false}
+                zoomEnabled={false}
+                onPress={openGoogleMapsNavigation}
+              >
+                <Marker
+                  coordinate={{ latitude: -12.0963, longitude: -77.0353 }}
+                  title="BarberApp San Isidro"
+                  description="Toca para abrir ruta en Google Maps"
+                  pinColor={theme.colors.primary}
+                  onPress={openGoogleMapsNavigation}
+                />
+              </MapView>
+
+              {/* Map Overlay Badge */}
+              <View style={[styles.mapOverlayBadge, { backgroundColor: 'rgba(18, 18, 18, 0.8)' }]}>
+                <IconSymbol size={14} name="paperplane.fill" color={theme.colors.primary} style={{ marginRight: 6 }} />
+                <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: 'bold' }}>
+                  Toca el mapa para abrir Google Maps
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </Card.Content>
+        </Card>
       </ScrollView>
 
-      {/* Guest Block Dialog */}
+      {/* Guest Block Dialog Redesigned */}
       <Portal>
-        <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)} style={{ backgroundColor: theme.colors.surface }}>
-          <Dialog.Title style={{ color: theme.colors.primary }}>Cuenta Requerida</Dialog.Title>
-          <Dialog.Content>
-            <Text variant="bodyMedium">
-              Para poder agendar una cita o acceder a los servicios personalizados, necesitas iniciar sesión o crear una cuenta nueva.
-            </Text>
+        <Dialog
+          visible={dialogVisible}
+          onDismiss={() => setDialogVisible(false)}
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(212, 175, 55, 0.35)',
+            paddingBottom: 6,
+          }}
+        >
+          <View style={{ alignItems: 'center', paddingTop: 16 }}>
+            <IconButton
+              icon="account-lock-outline"
+              size={36}
+              iconColor={theme.colors.primary}
+              style={{ backgroundColor: 'rgba(212, 175, 55, 0.12)', margin: 0 }}
+            />
+          </View>
+          <Dialog.Title style={{ color: theme.colors.primary, textAlign: 'center', fontWeight: 'bold', fontSize: 20, paddingTop: 8 }}>
+            ¡Cuenta Requerida!
+          </Dialog.Title>
+          <Dialog.Content style={{ paddingHorizontal: 20 }}>
+            <View style={{ backgroundColor: theme.colors.background, padding: 14, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(150, 150, 150, 0.12)', marginBottom: 4 }}>
+              <Text variant="bodyMedium" style={{ textAlign: 'center', lineHeight: 20, color: theme.colors.secondary }}>
+                Para agendar tus citas, chatear con nuestro equipo y disfrutar de promociones exclusivas, necesitas iniciar sesión o crear una cuenta.
+              </Text>
+            </View>
           </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setDialogVisible(false)} textColor={theme.colors.outline}>
+          <Dialog.Actions style={{ paddingHorizontal: 20, paddingBottom: 16, justifyContent: 'space-between', gap: 10 }}>
+            <Button
+              mode="outlined"
+              onPress={() => setDialogVisible(false)}
+              style={{ borderColor: 'rgba(150, 150, 150, 0.3)', borderRadius: 8, flex: 1 }}
+              textColor={theme.colors.outline}
+            >
               Cancelar
             </Button>
-            <Button onPress={goToLogin} textColor={theme.colors.primary} labelStyle={{ fontWeight: 'bold' }}>
+            <Button
+              mode="contained"
+              onPress={goToLogin}
+              style={{ backgroundColor: theme.colors.primary, borderRadius: 8, flex: 1.2 }}
+              labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+            >
               Iniciar Sesión
             </Button>
           </Dialog.Actions>
@@ -282,14 +487,19 @@ export default function HomeScreen() {
 
             {/* Scrollable Menu Items */}
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
-              {['Corte', 'Barba', 'Facial', 'Combo'].map((cat) => {
+              {(['promocion', 'cortes', 'barba', 'faciales'] as const).map((cat) => {
                 const filtered = services.filter(s => s.category === cat);
                 if (filtered.length === 0) return null;
+
+                const categoryTitle = 
+                  cat === 'promocion' ? 'PROMOCIONES Y OFERTAS' :
+                  cat === 'cortes' ? 'CORTES DE CABELLO' : 
+                  cat === 'barba' ? 'DISEÑO DE BARBA' : 'TERAPIAS FACIALES';
 
                 return (
                   <View key={cat} style={styles.modalCategorySection}>
                     <Text variant="titleMedium" style={[styles.modalCategoryTitle, { color: theme.colors.primary }]}>
-                      {cat === 'Corte' ? 'CORTES DE CABELLO' : cat === 'Barba' ? 'DISEÑO DE BARBA' : cat === 'Facial' ? 'TERAPIAS FACIALES' : 'COMBOS Y EXPERIENCIAS'}
+                      {categoryTitle}
                     </Text>
 
                     {filtered.map(s => (
@@ -307,25 +517,23 @@ export default function HomeScreen() {
                           </Text>
                           <View style={[styles.dottedLine, { borderBottomColor: 'rgba(212, 175, 55, 0.25)' }]} />
                           <Text style={[styles.modalServicePrice, { color: theme.colors.primary }]}>
-                            {s.price}
+                            {s.category === 'promocion' && s.promoPrice !== undefined ? (
+                              `S/. ${s.promoPrice}`
+                            ) : (
+                              `S/. ${s.price}`
+                            )}
                           </Text>
                         </View>
 
                         <Text variant="bodySmall" style={[styles.modalServiceDescription, { color: theme.colors.secondary }]}>
-                          {s.id === '1' ? 'Lavado purificante, corte de precisión adaptado a tu rostro, y estilizado con pomada importada de alta gama.' :
-                            s.id === '2' ? 'Corte clásico tradicional a tijera y máquina con acabado limpio y loción refrescante.' :
-                              s.id === '3' ? 'Diseño de barba con navaja libre, toallas calientes aromáticas y aceites de hidratación premium.' :
-                                s.id === '4' ? 'Recorte rápido a máquina y alineación de contornos para mantener tu barba impecable.' :
-                                  s.id === '5' ? 'Tratamiento detox con mascarilla de carbón activo para remover impurezas y puntos negros.' :
-                                    s.id === '6' ? 'Exfoliación facial profunda para renovación celular con mascarilla hidratante refrescante.' :
-                                      'La experiencia de lujo total. Corte Signature, perfilado de barba premium, exfoliación express y bebida de cortesía.'}
+                          {s.description || 'Sin descripción'}
                         </Text>
 
                         <View style={styles.serviceRowFooter}>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <IconSymbol size={13} name="clock" color={theme.colors.outline} style={{ marginRight: 4 }} />
                             <Text variant="labelSmall" style={[styles.modalServiceDuration, { color: theme.colors.secondary }]}>
-                              {s.duration}
+                              {s.duration} min
                             </Text>
                           </View>
                           <View style={styles.dotSeparator} />
@@ -415,6 +623,32 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 4,
   },
+  promoImageContainer: {
+    height: 160,
+    width: '100%',
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginVertical: 10,
+    backgroundColor: 'rgba(150, 150, 150, 0.08)',
+  },
+  promoImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
+  },
+  serviceCardImageContainer: {
+    height: 90,
+    width: '100%',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginVertical: 6,
+    backgroundColor: 'rgba(150, 150, 150, 0.08)',
+  },
+  serviceCardImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
   promoDesc: {
     opacity: 0.7,
     marginBottom: 16,
@@ -480,7 +714,7 @@ const styles = StyleSheet.create({
   },
   serviceCard: {
     width: SERVICE_CARD_WIDTH,
-    marginRight: 12,
+    marginRight: 14,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(150, 150, 150, 0.1)',
@@ -488,13 +722,13 @@ const styles = StyleSheet.create({
   carouselArrowIndicator: {
     position: 'absolute',
     right: 4,
-    top: '32%',
+    top: '40%',
     zIndex: 10,
     opacity: 0.85,
   },
   serviceContent: {
-    padding: 12,
-    height: 140,
+    padding: 14,
+    minHeight: 180,
     justifyContent: 'space-between',
   },
   categoryBadge: {
@@ -506,22 +740,23 @@ const styles = StyleSheet.create({
   },
   serviceName: {
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 15,
     marginVertical: 4,
-    lineHeight: 18,
+    lineHeight: 20,
   },
   serviceFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 6,
   },
   serviceDuration: {
-    fontSize: 11,
-    opacity: 0.5,
+    fontSize: 12,
+    opacity: 0.6,
   },
   servicePrice: {
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 15,
   },
   galleryContainer: {
     paddingHorizontal: 20,
@@ -696,5 +931,46 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 13,
     letterSpacing: 1.5,
+  },
+  supportCard: {
+    marginTop: 24,
+    marginBottom: 16,
+    borderRadius: 14,
+  },
+  supportCardContent: {
+    padding: 16,
+  },
+  supportBtn: {
+    marginTop: 14,
+    borderRadius: 8,
+    paddingVertical: 2,
+  },
+  locationCard: {
+    marginTop: 12,
+    marginBottom: 32,
+    borderRadius: 14,
+  },
+  mapTouchContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  mapView: {
+    width: '100%',
+    height: '100%',
+  },
+  mapOverlayBadge: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
   },
 });

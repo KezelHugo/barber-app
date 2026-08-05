@@ -24,7 +24,8 @@ const MAPPING = {
   'clock': 'access-time',
   'scissors': 'content-cut',
   'document': 'description',
-  'pencil': 'edit'
+  'pencil': 'edit',
+  'bubble.left.and.bubble.right.fill': 'chat'
 } as IconMapping;
 
 /**

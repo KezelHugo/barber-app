@@ -5,6 +5,9 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 're
 import { Button, Card, Divider, HelperText, Text, TextInput, useTheme } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+// Control flag to show/hide quick role bypass panel (true for Demo APK, false for Official APK)
+const SHOW_DEV_BYPASS = true;
+
 export default function LoginScreen() {
   const theme = useTheme();
   const router = useRouter();
@@ -32,13 +35,13 @@ export default function LoginScreen() {
     }
   };
 
-  const handleDevBypass = async (devEmail: string) => {
+  const handleDevBypass = async (devEmail: string, devPass: string) => {
     setLoading(true);
     setError('');
     try {
-      await signIn(devEmail, 'password123');
+      await signIn(devEmail, devPass);
     } catch (err: any) {
-      setError(`Prueba fallida. Asegúrate de registrar en Firebase: ${devEmail} / password123`);
+      setError(`Prueba fallida. Asegúrate de registrar en Firebase: ${devEmail} / ${devPass}`);
     } finally {
       setLoading(false);
     }
@@ -147,6 +150,7 @@ export default function LoginScreen() {
           </View>
 
           {/* Developer Bypass Panel */}
+          {SHOW_DEV_BYPASS && (
             <View style={styles.devPanel}>
               <Divider style={styles.divider} />
               <Text style={styles.devTitle} variant="labelMedium">
@@ -155,7 +159,7 @@ export default function LoginScreen() {
               <View style={styles.devButtons}>
                 <Button
                   mode="contained-tonal"
-                  onPress={() => handleDevBypass('cliente@barberapp.com')}
+                  onPress={() => handleDevBypass('cliente@barberapp.com', 'password123')}
                   disabled={loading}
                   style={styles.devBtn}
                   compact
@@ -164,7 +168,7 @@ export default function LoginScreen() {
                 </Button>
                 <Button
                   mode="contained-tonal"
-                  onPress={() => handleDevBypass('barbero@barberapp.com')}
+                  onPress={() => handleDevBypass('miguel.rojas@barberapp.com', '70123456')}
                   disabled={loading}
                   style={styles.devBtn}
                   compact
@@ -173,7 +177,7 @@ export default function LoginScreen() {
                 </Button>
                 <Button
                   mode="contained-tonal"
-                  onPress={() => handleDevBypass('admin@barberapp.com')}
+                  onPress={() => handleDevBypass('admin@barberapp.com', 'password123')}
                   disabled={loading}
                   style={styles.devBtn}
                   compact
@@ -182,6 +186,7 @@ export default function LoginScreen() {
                 </Button>
               </View>
             </View>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
