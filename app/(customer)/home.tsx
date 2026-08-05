@@ -8,9 +8,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { db } from '@/config/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
+import { Image } from 'expo-image';
+import { getDirectImageUrl } from '@/utils/image-url';
 
 const { width: screenWidth } = Dimensions.get('window');
-const SERVICE_CARD_WIDTH = screenWidth * 0.41;
+const SERVICE_CARD_WIDTH = screenWidth * 0.64;
 
 interface ServiceItem {
   id: string;
@@ -49,8 +51,8 @@ export default function HomeScreen() {
 
   const handleScrollRight = () => {
     if (flatListRef.current) {
-      const step = (SERVICE_CARD_WIDTH + 12) * 2;
-      const totalWidth = services.length * (SERVICE_CARD_WIDTH + 12);
+      const step = SERVICE_CARD_WIDTH + 14;
+      const totalWidth = services.length * (SERVICE_CARD_WIDTH + 14);
       // Si ya llegamos al final del scrollable, regresamos al inicio
       if (scrollOffset + screenWidth >= totalWidth - 30) {
         flatListRef.current.scrollToOffset({ offset: 0, animated: true });
@@ -172,6 +174,19 @@ export default function HomeScreen() {
               <Text variant="headlineSmall" style={[styles.promoTitle, { color: theme.colors.secondary }]}>
                 {promoService.name}
               </Text>
+
+              {/* Promo Combo Image */}
+              {promoService.imageUrl && promoService.imageUrl.trim() !== '' ? (
+                <View style={styles.promoImageContainer}>
+                  <Image
+                    source={{ uri: getDirectImageUrl(promoService.imageUrl) }}
+                    style={styles.promoImage}
+                    contentFit="cover"
+                    transition={200}
+                  />
+                </View>
+              ) : null}
+
               <Text variant="bodyMedium" style={styles.promoDesc}>
                 {promoService.description || 'Disfruta de esta oferta exclusiva por tiempo limitado.'}
               </Text>
@@ -249,6 +264,18 @@ export default function HomeScreen() {
                     <Text variant="titleMedium" numberOfLines={2} style={[styles.serviceName, { color: theme.colors.secondary }]}>
                       {item.name}
                     </Text>
+
+                    {item.imageUrl && item.imageUrl.trim() !== '' ? (
+                      <View style={styles.serviceCardImageContainer}>
+                        <Image
+                          source={{ uri: getDirectImageUrl(item.imageUrl) }}
+                          style={styles.serviceCardImage}
+                          contentFit="cover"
+                          transition={200}
+                        />
+                      </View>
+                    ) : null}
+
                     <View style={styles.serviceFooter}>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <IconSymbol size={14} name="clock" color={theme.colors.outline} style={{ marginRight: 4 }} />
@@ -375,20 +402,52 @@ export default function HomeScreen() {
         </Card>
       </ScrollView>
 
-      {/* Guest Block Dialog */}
+      {/* Guest Block Dialog Redesigned */}
       <Portal>
-        <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)} style={{ backgroundColor: theme.colors.surface }}>
-          <Dialog.Title style={{ color: theme.colors.primary }}>Cuenta Requerida</Dialog.Title>
-          <Dialog.Content>
-            <Text variant="bodyMedium">
-              Para poder agendar una cita o acceder a los servicios personalizados, necesitas iniciar sesión o crear una cuenta nueva.
-            </Text>
+        <Dialog
+          visible={dialogVisible}
+          onDismiss={() => setDialogVisible(false)}
+          style={{
+            backgroundColor: theme.colors.surface,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(212, 175, 55, 0.35)',
+            paddingBottom: 6,
+          }}
+        >
+          <View style={{ alignItems: 'center', paddingTop: 16 }}>
+            <IconButton
+              icon="account-lock-outline"
+              size={36}
+              iconColor={theme.colors.primary}
+              style={{ backgroundColor: 'rgba(212, 175, 55, 0.12)', margin: 0 }}
+            />
+          </View>
+          <Dialog.Title style={{ color: theme.colors.primary, textAlign: 'center', fontWeight: 'bold', fontSize: 20, paddingTop: 8 }}>
+            ¡Cuenta Requerida!
+          </Dialog.Title>
+          <Dialog.Content style={{ paddingHorizontal: 20 }}>
+            <View style={{ backgroundColor: theme.colors.background, padding: 14, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(150, 150, 150, 0.12)', marginBottom: 4 }}>
+              <Text variant="bodyMedium" style={{ textAlign: 'center', lineHeight: 20, color: theme.colors.secondary }}>
+                Para agendar tus citas, chatear con nuestro equipo y disfrutar de promociones exclusivas, necesitas iniciar sesión o crear una cuenta.
+              </Text>
+            </View>
           </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setDialogVisible(false)} textColor={theme.colors.outline}>
+          <Dialog.Actions style={{ paddingHorizontal: 20, paddingBottom: 16, justifyContent: 'space-between', gap: 10 }}>
+            <Button
+              mode="outlined"
+              onPress={() => setDialogVisible(false)}
+              style={{ borderColor: 'rgba(150, 150, 150, 0.3)', borderRadius: 8, flex: 1 }}
+              textColor={theme.colors.outline}
+            >
               Cancelar
             </Button>
-            <Button onPress={goToLogin} textColor={theme.colors.primary} labelStyle={{ fontWeight: 'bold' }}>
+            <Button
+              mode="contained"
+              onPress={goToLogin}
+              style={{ backgroundColor: theme.colors.primary, borderRadius: 8, flex: 1.2 }}
+              labelStyle={{ color: '#121212', fontWeight: 'bold' }}
+            >
               Iniciar Sesión
             </Button>
           </Dialog.Actions>
@@ -564,6 +623,32 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 4,
   },
+  promoImageContainer: {
+    height: 160,
+    width: '100%',
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginVertical: 10,
+    backgroundColor: 'rgba(150, 150, 150, 0.08)',
+  },
+  promoImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
+  },
+  serviceCardImageContainer: {
+    height: 90,
+    width: '100%',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginVertical: 6,
+    backgroundColor: 'rgba(150, 150, 150, 0.08)',
+  },
+  serviceCardImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
   promoDesc: {
     opacity: 0.7,
     marginBottom: 16,
@@ -629,7 +714,7 @@ const styles = StyleSheet.create({
   },
   serviceCard: {
     width: SERVICE_CARD_WIDTH,
-    marginRight: 12,
+    marginRight: 14,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(150, 150, 150, 0.1)',
@@ -637,13 +722,13 @@ const styles = StyleSheet.create({
   carouselArrowIndicator: {
     position: 'absolute',
     right: 4,
-    top: '32%',
+    top: '40%',
     zIndex: 10,
     opacity: 0.85,
   },
   serviceContent: {
-    padding: 12,
-    height: 140,
+    padding: 14,
+    minHeight: 180,
     justifyContent: 'space-between',
   },
   categoryBadge: {
@@ -655,22 +740,23 @@ const styles = StyleSheet.create({
   },
   serviceName: {
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 15,
     marginVertical: 4,
-    lineHeight: 18,
+    lineHeight: 20,
   },
   serviceFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 6,
   },
   serviceDuration: {
-    fontSize: 11,
-    opacity: 0.5,
+    fontSize: 12,
+    opacity: 0.6,
   },
   servicePrice: {
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 15,
   },
   galleryContainer: {
     paddingHorizontal: 20,

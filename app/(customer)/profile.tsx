@@ -28,6 +28,33 @@ export default function ProfileScreen() {
   const [passwordError, setPasswordError] = useState('');
   const [loadingPassword, setLoadingPassword] = useState(false);
 
+  // Phone editing states
+  const [phoneDialogVisible, setPhoneDialogVisible] = useState(false);
+  const [newPhone, setNewPhone] = useState('');
+  const [loadingPhone, setLoadingPhone] = useState(false);
+
+  const handleUpdatePhone = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    setLoadingPhone(true);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        phone: newPhone.trim()
+      });
+      setPhone(newPhone.trim());
+      setPhoneDialogVisible(false);
+      setSnackbarMsg('Teléfono actualizado exitosamente.');
+      setSnackbarVisible(true);
+    } catch (err) {
+      console.error("Error al actualizar teléfono:", err);
+      setSnackbarMsg('Error al actualizar el teléfono en la base de datos.');
+      setSnackbarVisible(true);
+    } finally {
+      setLoadingPhone(false);
+    }
+  };
+
   const handleUpdatePassword = async () => {
     if (!newPassword.trim()) {
       setPasswordError('Por favor, ingresa una nueva contraseña.');
@@ -182,7 +209,7 @@ export default function ProfileScreen() {
             <Card.Content>
               <View style={styles.sectionHeader}>
                 <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.secondary }}>
-                  Preferencias de Estilo 💈
+                  Preferencias de Estilo
                 </Text>
                 <Button
                   mode="text"
@@ -222,34 +249,21 @@ export default function ProfileScreen() {
           <Card style={[styles.card, { backgroundColor: theme.colors.surface }]} elevation={1}>
             <List.Section style={{ marginVertical: 0 }}>
               <List.Subheader style={{ color: theme.colors.primary, fontWeight: 'bold' }}>DATOS PERSONALES</List.Subheader>
-              {isEditing ? (
-                <TextInput
-                  label="Teléfono"
-                  value={phone}
-                  onChangeText={setPhone}
-                  mode="outlined"
-                  keyboardType="phone-pad"
-                  style={{ marginHorizontal: 16, marginVertical: 8 }}
-                />
-              ) : (
-                <List.Item
-                  title="Teléfono"
-                  description={phone || 'No registrado'}
-                  left={(props) => <List.Icon {...props} icon="phone" color={theme.colors.primary} />}
-                />
-              )}
+              <List.Item
+                title="Teléfono"
+                description={phone || 'Sin registrar (toca para editar)'}
+                left={(props) => <List.Icon {...props} icon="phone" color={theme.colors.primary} />}
+                right={(props) => <List.Icon {...props} icon="pencil-outline" color={theme.colors.primary} />}
+                onPress={() => {
+                  setNewPhone(phone);
+                  setPhoneDialogVisible(true);
+                }}
+              />
               <Divider style={styles.divider} />
               <List.Item
                 title="Ubicación Habitual"
                 description="Sede San Isidro, Lima"
                 left={(props) => <List.Icon {...props} icon="map-marker" color={theme.colors.primary} />}
-              />
-              <Divider style={styles.divider} />
-              <List.Item
-                title="Historial de Cortes"
-                description="3 servicios realizados"
-                left={(props) => <List.Icon {...props} icon="history" color={theme.colors.primary} />}
-                right={(props) => <List.Icon {...props} icon="chevron-right" />}
               />
             </List.Section>
           </Card>
@@ -279,12 +293,49 @@ export default function ProfileScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Change Password Dialog */}
+      {/* Edit Phone Dialog */}
       <Portal>
+        <Dialog
+          visible={phoneDialogVisible}
+          onDismiss={() => !loadingPhone && setPhoneDialogVisible(false)}
+          style={{ backgroundColor: theme.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(212, 175, 55, 0.35)' }}
+        >
+          <Dialog.Title style={{ color: theme.colors.primary, fontWeight: 'bold' }}>Editar Teléfono</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodySmall" style={{ opacity: 0.65, marginBottom: 12 }}>
+              Ingresa tu número de teléfono para recibir detalles y actualizaciones sobre tus citas.
+            </Text>
+            <TextInput
+              label="Número de Teléfono"
+              value={newPhone}
+              onChangeText={setNewPhone}
+              mode="outlined"
+              keyboardType="phone-pad"
+              disabled={loadingPhone}
+              placeholder="Ej: 987654321"
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setPhoneDialogVisible(false)} textColor={theme.colors.outline} disabled={loadingPhone}>
+              Cancelar
+            </Button>
+            <Button
+              onPress={handleUpdatePhone}
+              textColor={theme.colors.primary}
+              labelStyle={{ fontWeight: 'bold' }}
+              loading={loadingPhone}
+              disabled={loadingPhone}
+            >
+              Guardar
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* Change Password Dialog */}
         <Dialog
           visible={passwordDialogVisible}
           onDismiss={() => !loadingPassword && setPasswordDialogVisible(false)}
-          style={{ backgroundColor: theme.colors.surface, borderRadius: 4 }}
+          style={{ backgroundColor: theme.colors.surface, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(212, 175, 55, 0.35)' }}
         >
           <Dialog.Title style={{ color: theme.colors.primary }}>Cambiar Contraseña</Dialog.Title>
           <Dialog.Content>

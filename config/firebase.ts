@@ -17,17 +17,27 @@ export const firebaseConfig = {
 };
 
 // Inicializa la app de Firebase previniendo duplicaciones durante el hot reload
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const isNewApp = getApps().length === 0;
+const app = isNewApp ? initializeApp(firebaseConfig) : getApp();
 
 // Inicializa la autenticación con persistencia persistente en dispositivos móviles (Android/iOS)
 let firebaseAuth;
 if (Platform.OS === 'web') {
   firebaseAuth = getAuth(app);
 } else {
-  // Para Android e iOS, usamos persistencia persistente para que no cierre sesión al cerrar la app
-  firebaseAuth = getApps().length === 0 
-    ? initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) })
-    : getAuth(app);
+  if (isNewApp) {
+    firebaseAuth = initializeAuth(app, {
+      persistence: getReactNativePersistence(AsyncStorage),
+    });
+  } else {
+    try {
+      firebaseAuth = getAuth(app);
+    } catch {
+      firebaseAuth = initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage),
+      });
+    }
+  }
 }
 
 export const auth = firebaseAuth;

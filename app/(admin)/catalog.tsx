@@ -6,6 +6,8 @@ import React, { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Button, Card, Dialog, FAB, HelperText, IconButton, Portal, Snackbar, Text, TextInput, useTheme, Searchbar, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import { getDirectImageUrl } from '@/utils/image-url';
 
 interface CatalogService {
   id: string;
@@ -305,6 +307,16 @@ export default function AdminCatalogScreen() {
                       <Text variant="bodySmall" style={styles.serviceDesc}>
                         {item.description || 'Sin descripción'}
                       </Text>
+                      {item.imageUrl && item.imageUrl.trim() !== '' ? (
+                        <View style={{ marginTop: 8, marginBottom: 8, height: 120, borderRadius: 8, overflow: 'hidden', backgroundColor: 'rgba(150, 150, 150, 0.08)' }}>
+                          <Image
+                            source={{ uri: getDirectImageUrl(item.imageUrl) }}
+                            style={{ width: '100%', height: '100%', borderRadius: 8 }}
+                            contentFit="cover"
+                            transition={200}
+                          />
+                        </View>
+                      ) : null}
                       <View style={styles.metaRow}>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                           <IconSymbol size={16} name="clock" color={theme.colors.outline} style={{ marginRight: 6 }} />
